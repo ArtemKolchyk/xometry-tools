@@ -1,0 +1,160 @@
+// Salesforce Case record: open its ERP job in a new tab.
+(function () {
+  'use strict';
+
+  const SCRIPT_ID = 'sf-case-erp-button';
+  const CASE_PATH_RE = /^\/lightning\/r\/Case\/[^/]+\/view\/?$/;
+  const JOB_ID_RE = /\bJ[0-9A-Z]{6,10}\b/;
+  const BUTTON_ID = 'xt-open-case-job-in-erp';
+
+  function deepQueryAll(selector, root = document) {
+    const found = [];
+    const walk = (node) => {
+      node.querySelectorAll(selector).forEach((el) => found.push(el));
+      node.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); });
+    };
+    walk(root);
+    return found;
+  }
+
+  function deepText(node) {
+    const parts = [];
+    const walk = (current) => {
+      if (current.nodeType === Node.TEXT_NODE) {
+        const text = current.textContent.trim();
+        if (text) parts.push(text);
+        return;
+      }
+      if (current.shadowRoot) current.shadowRoot.childNodes.forEach(walk);
+      current.childNodes.forEach(walk);
+    };
+    walk(node);
+    return parts.join(' ');
+  }
+
+  function parentAcrossShadow(element) {
+    if (element.parentElement) return element.parentElement;
+    const root = element.getRootNode();
+    return root && root.host ? root.host : null;
+  }
+
+  function isVisible(element) {
+    return element && element.isConnected && element.getClientRects().length > 0;
+  }
+
+  function getJobId() {
+    const subjectLabels = deepQueryAll('.slds-form-element__label, [data-label="Subject"]')
+      .filter((element) => deepText(element).trim().replace(/:$/, '') === 'Subject');
+
+    for (const label of subjectLabels) {
+      let candidate = label;
+      for (let depth = 0; candidate && depth < 4; depth++, candidate = parentAcrossShadow(candidate)) {
+        const match = deepText(candidate).match(JOB_ID_RE);
+        if (match) return match[0];
+      }
+    }
+
+    const matches = new Set((document.body.innerText.match(/\bJ[0-9A-Z]{6,10}\b/g) || []));
+    return matches.size === 1 ? [...matches][0] : null;
+  }
+
+  function createButton() {
+    const button = document.createElement('button');
+    button.id = BUTTON_ID;
+    button.type = 'button';
+    button.textContent = 'Open in ERP';
+    button.setAttribute('aria-label', 'Open this case job in ERP');
+    Object.assign(button.style, {
+      position: 'absolute',
+      top: '100%',
+      left: '0',
+      marginTop: '8px',
+      boxSizing: 'border-box',
+      height: '32px',
+      padding: '0 12px',
+      border: '1px solid #c9c9c9',
+      borderRadius: '16px 4px 4px 16px',
+      background: '#fff',
+      color: '#0176d3',
+      font: '600 13px Arial, sans-serif',
+      whiteSpace: 'nowrap',
+      cursor: 'pointer',
+      zIndex: '10',
+    });
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const jobId = button.dataset.jobId;
+      if (jobId) XT.openTab(XT.erp.jobPageUrl(jobId))
+        .catch((error) => console.warn('[Case ERP button]', error.message));
+    });
+    return button;
+  }
+
+  function findLaunchVqcAction() {
+    const actions = deepQueryAll('lightning-button, button, a, [role="button"]')
+      .filter(isVisible);
+    const labelOf = (element) => [
+      deepText(element),
+      element.getAttribute('aria-label'),
+      element.getAttribute('title'),
+    ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    const isLaunchVqc = (element) => /(^|\s)Launch VQC($|\s)/i.test(labelOf(element));
+
+    return actions.find((element) => element.tagName.toLowerCase() === 'lightning-button' && isLaunchVqc(element))
+      || actions.find(isLaunchVqc);
+  }
+
+  // Ячейка группы кнопок (li), в которой лежит Launch VQC: под неё вешаем нашу кнопку.
+  function findAnchor(launchAction) {
+    let element = launchAction;
+    for (let depth = 0; element && depth < 8; depth++, element = parentAcrossShadow(element)) {
+      if (element.tagName === 'LI') return element;
+    }
+    return launchAction;
+  }
+
+  const button = createButton();
+  let running = false;
+  let timer = null;
+
+  function syncButton() {
+    if (!CASE_PATH_RE.test(location.pathname)) {
+      button.remove();
+      return;
+    }
+
+    const jobId = getJobId();
+    if (!jobId) {
+      button.remove();
+      return;
+    }
+    button.dataset.jobId = jobId;
+    button.title = `Open ${jobId} in ERP`;
+
+    const launchAction = findLaunchVqcAction();
+    if (!launchAction) {
+      button.remove();
+      return;
+    }
+
+    const anchor = findAnchor(launchAction);
+    if (getComputedStyle(anchor).position === 'static') anchor.style.position = 'relative';
+    if (button.parentElement !== anchor) anchor.appendChild(button);
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    syncButton();
+    timer = setInterval(syncButton, 1200);
+  }
+
+  function stop() {
+    if (!running) return;
+    running = false;
+    clearInterval(timer);
+    button.remove();
+  }
+
+  XT.settings.watch(SCRIPT_ID, (enabled) => (enabled ? start() : stop()));
+})();

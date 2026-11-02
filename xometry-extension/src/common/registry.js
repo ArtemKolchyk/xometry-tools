@@ -1,0 +1,100 @@
+// Реестр сайтов и скриптов. По нему строится popup и берутся значения по умолчанию.
+// Новый скрипт = запись здесь + блок content_scripts в manifest.json.
+// stub: true — заглушка: видна в popup, но не включается.
+// general: true — общие скрипты: работают на всех (не заглушечных) сайтах из списка.
+(function () {
+  'use strict';
+  const XT = (globalThis.XT = globalThis.XT || {});
+
+  const sites = [
+    {
+      id: 'general',
+      name: 'General',
+      host: 'All supported sites',
+      general: true,
+      matches: [],   // заполняется ниже из остальных сайтов
+    },
+    {
+      id: 'sf-queue',
+      name: 'SF queue',
+      host: '*.lightning.force.com',
+      matches: ['https://*.lightning.force.com/*'],
+    },
+    {
+      id: 'erp',
+      name: 'ERP',
+      host: 'www.xometry.com/erp',
+      matches: ['https://www.xometry.com/erp/*'],
+      stub: true,
+    },
+  ];
+
+  sites.find((s) => s.general).matches = sites
+    .filter((s) => !s.general && !s.stub)
+    .flatMap((s) => s.matches);
+
+  const scripts = [
+    {
+      id: 'text-highlighter',
+      site: 'general',
+      name: 'Text highlighter',
+      description: 'Highlight names and phrases with your own colors. On overlap the upper rule wins.',
+      editor: 'highlight-rules',
+    },
+    {
+      id: 'auto-refresh',
+      site: 'general',
+      name: 'Auto refresh',
+      description: 'Reloads the page on a timer. Never reloads while a focused field has unsaved text.',
+      defaultEnabled: false,
+      editor: 'auto-refresh',
+      options: { intervalMin: 5, pauseWhenActive: true, idleSec: 60 },
+    },
+    {
+      id: 'sf-erp-sidebar',
+      site: 'sf-queue',
+      name: 'ERP sidebar',
+      description: 'ERP info cards next to each case in the queue: inspection type, part IDs.',
+      cachePrefix: 'erpjob2:',
+      actions: [
+        { id: 'refresh-all', label: 'Refresh all' },
+        { id: 'clear-cache', label: 'Clear cache' },
+      ],
+    },
+    {
+      id: 'sf-case-erp-button',
+      site: 'sf-queue',
+      name: 'Open case job in ERP',
+      description: 'Adds an ERP button to Salesforce Case records when a job number is present.',
+    },
+    {
+      id: 'sf-case-quick-text',
+      site: 'sf-queue',
+      name: 'Case quick text',
+      description: 'VQC pass / PASS after corrections buttons on a Case: insert the text below where the cursor is.',
+      editor: 'quick-text',
+      options: { passText: 'VQC pass', correctionsText: 'PASS after corrections' },
+    },
+    {
+      id: 'sf-placeholder',
+      site: 'sf-queue',
+      name: 'More Salesforce tools',
+      description: 'Placeholder for upcoming Salesforce scripts.',
+      stub: true,
+    },
+    {
+      id: 'erp-placeholder',
+      site: 'erp',
+      name: 'ERP job helpers',
+      description: 'Placeholder for upcoming ERP page scripts.',
+      stub: true,
+    },
+  ];
+
+  XT.registry = {
+    sites,
+    scripts,
+    getScript: (id) => scripts.find((s) => s.id === id),
+    scriptsForSite: (siteId) => scripts.filter((s) => s.site === siteId),
+  };
+})();
