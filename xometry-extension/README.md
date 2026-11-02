@@ -19,11 +19,18 @@ in the popup and can be turned on/off individually.
   - `storage-cache.js` — `chrome.storage.local` cache with an in-memory `Map` (synchronous `get`)
   - `erp-client.js` — ERP API for content scripts: URLs, `getJson`, `openTab` (via background)
   - `highlight-rules.js` — rules of the Text highlighter (`chrome.storage.sync`) and color presets
+  - `quick-text-buttons.js` — buttons of Case quick text (`chrome.storage.sync`), color presets and page slots
+  - `sf-dom.js` — Salesforce DOM helpers: shadow-DOM search, the Launch VQC cell on a Case
 - `src/background/service-worker.js` — ERP requests with `credentials: 'include'`, opening tabs, ERP login status
 - `src/content/salesforce-erp-sidebar.js` — port of `userscripts/salesforce-erp-sidebar.user.js`
 - `src/content/salesforce-case-erp-button.js` — opens the job from an open Salesforce Case in ERP
-- `src/content/salesforce-case-quick-text.js` — VQC pass / PASS after corrections buttons on a Case: insert a preset
-  text at the cursor (texts are edited in the popup, `quick-text-editor.js`)
+- `src/content/salesforce-case-quick-text.js` — user-defined buttons on a Case that insert a text at the cursor.
+  Each button sits in a slot tied to a page landmark (`MOUNTS`); «Arrange on page» lets you drag buttons between slots
+  - `src/common/quick-text-buttons.js` — the buttons `[{ id, label, text, bg, color }]` in `chrome.storage.sync`,
+    one item per button (8 KB per-item limit) + an index of ids for the order
+  - `src/popup/quick-text-editor.js` — editor: label, colors, text, drag to reorder, delete, «+ Add button»
+- `src/content/qcc-quick-verdict.js` — QC Center: Accept All / Reject All in the Submit Verdict dialog;
+  port of `userscripts/QCC - Accept or Reject.txt`
 - `src/content/text-highlighter.js` — general script: highlights text via the CSS Custom Highlight API (no DOM changes)
 - `src/content/auto-refresh.js` — general script: reloads the page on a timer, waits while the user is active
   or a focused field has unsaved text. Per-script settings live in `XT.options` (defaults: `options` in the registry)
@@ -33,6 +40,7 @@ in the popup and can be turned on/off individually.
 
 Scripts of the `general` site run on every supported (non-stub) site. Their files are listed in
 **each** site's `content_scripts` block in `manifest.json` — not on `<all_urls>`, to keep permissions narrow.
+Exception: Auto refresh is not loaded on QC Center (not needed there yet).
 - `icons/`
 
 ## Adding a script

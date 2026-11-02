@@ -188,10 +188,25 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
 }
 .ar-num { width: 64px; }
 
-/* Тексты кнопок Case quick text */
-.qt-row { display: flex; flex-direction: column; gap: 4px; }
+/* Редактор кнопок Case quick text */
+.qt-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.qt-list > .muted { margin: 0; }
+.qt-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+}
+.qt-row.dragging { opacity: .45; }
+.qt-head { position: relative; display: flex; align-items: center; gap: 6px; }
+.qt-handle { flex: none; color: var(--muted); font-size: 14px; cursor: grab; user-select: none; }
+.qt-chip {
+  flex: none; max-width: 140px; height: 26px; padding: 0 12px;
+  border: 1px solid rgba(0, 0, 0, .15); border-radius: 13px;
+  font: 600 12px Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.qt-place { display: flex; align-items: center; gap: 6px; margin-left: 18px; font-size: 12px; color: var(--muted); }
+.qt-place .ar-select { flex: 1; min-width: 0; }
 .qt-text {
-  padding: 4px 8px; resize: vertical;
+  margin-left: 18px; padding: 4px 8px; resize: vertical;
   border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit;
 }
 .qt-text:focus { outline: none; border-color: var(--accent); }

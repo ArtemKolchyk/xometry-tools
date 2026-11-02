@@ -1,8 +1,8 @@
 {
   "name": "xometry-extension",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "scripts": {
-    "check": "node --check src/common/registry.js && node --check src/common/settings.js && node --check src/common/storage-cache.js && node --check src/common/erp-client.js && node --check src/common/highlight-rules.js && node --check src/content/text-highlighter.js && node --check src/popup/highlight-editor.js && node --check src/content/auto-refresh.js && node --check src/popup/auto-refresh-editor.js &&node --check src/background/service-worker.js && node --check src/content/salesforce-erp-sidebar.js && node --check src/content/salesforce-case-erp-button.js && node --check src/content/salesforce-case-quick-text.js && node --check src/popup/quick-text-editor.js && node --check src/popup/popup.js"
+    "check": "node --check src/common/registry.js && node --check src/common/settings.js && node --check src/common/storage-cache.js && node --check src/common/erp-client.js && node --check src/common/highlight-rules.js && node --check src/common/quick-text-buttons.js && node --check src/common/sf-dom.js && node --check src/content/text-highlighter.js && node --check src/popup/highlight-editor.js && node --check src/content/auto-refresh.js && node --check src/popup/auto-refresh-editor.js &&node --check src/background/service-worker.js && node --check src/content/salesforce-erp-sidebar.js && node --check src/content/salesforce-case-erp-button.js && node --check src/content/salesforce-case-quick-text.js && node --check src/popup/quick-text-editor.js && node --check src/content/qcc-quick-verdict.js && node --check src/popup/popup.js"
   }
 }

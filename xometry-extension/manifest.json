@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Xometry Tools",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Helper scripts for Xometry teams: ERP info cards in the Salesforce case queue and more.",
   "icons": {
     "16": "icons/icon16.png",
@@ -41,11 +41,26 @@
         "src/common/storage-cache.js",
         "src/common/erp-client.js",
         "src/common/highlight-rules.js",
+        "src/common/quick-text-buttons.js",
+        "src/common/sf-dom.js",
         "src/content/text-highlighter.js",
         "src/content/auto-refresh.js",
         "src/content/salesforce-erp-sidebar.js",
         "src/content/salesforce-case-erp-button.js",
         "src/content/salesforce-case-quick-text.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.xometry.com/qc-center-app/*"
+      ],
+      "js": [
+        "src/common/registry.js",
+        "src/common/settings.js",
+        "src/common/highlight-rules.js",
+        "src/content/text-highlighter.js",
+        "src/content/qcc-quick-verdict.js"
       ],
       "run_at": "document_idle"
     }

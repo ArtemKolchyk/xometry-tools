@@ -21,6 +21,12 @@
       matches: ['https://*.lightning.force.com/*'],
     },
     {
+      id: 'qcc',
+      name: 'QC Center',
+      host: '*.xometry.com/qc-center-app',
+      matches: ['https://*.xometry.com/qc-center-app/*'],
+    },
+    {
       id: 'erp',
       name: 'ERP',
       host: 'www.xometry.com/erp',
@@ -71,9 +77,11 @@
       id: 'sf-case-quick-text',
       site: 'sf-queue',
       name: 'Case quick text',
-      description: 'VQC pass / PASS after corrections buttons on a Case: insert the text below where the cursor is.',
+      description: 'Your own buttons on a Case: each inserts its text where the cursor is. Drag ⠿ to reorder.',
       editor: 'quick-text',
-      options: { passText: 'VQC pass', correctionsText: 'PASS after corrections' },
+      actions: [
+        { id: 'arrange', label: 'Arrange on page' },
+      ],
     },
     {
       id: 'sf-placeholder',
@@ -81,6 +89,12 @@
       name: 'More Salesforce tools',
       description: 'Placeholder for upcoming Salesforce scripts.',
       stub: true,
+    },
+    {
+      id: 'qcc-quick-verdict',
+      site: 'qcc',
+      name: 'Quick verdict',
+      description: 'Accept All / Reject All buttons in the Submit Verdict dialog: fill status, reason and quantities.',
     },
     {
       id: 'erp-placeholder',
