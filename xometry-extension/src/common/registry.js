@@ -2,11 +2,19 @@
 // Новый скрипт = запись здесь + блок content_scripts в manifest.json.
 // stub: true — заглушка: видна в popup, но не включается.
 // general: true — общие скрипты: работают на всех (не заглушечных) сайтах из списка.
+// settings: true — не сайт, а страница общих настроек расширения (src/popup/settings-page.js).
 (function () {
   'use strict';
   const XT = (globalThis.XT = globalThis.XT || {});
 
   const sites = [
+    {
+      id: 'settings',
+      name: 'Settings',
+      host: 'Whole extension',
+      settings: true,
+      matches: [],
+    },
     {
       id: 'general',
       name: 'General',
@@ -44,7 +52,8 @@
       id: 'text-highlighter',
       site: 'general',
       name: 'Text highlighter',
-      description: 'Highlight names and phrases with your own colors. On overlap the upper rule wins.',
+      description: 'Highlight names and phrases with your own colors. Several texts per rule: separate with commas. '
+        + 'On overlap the upper rule wins.',
       editor: 'highlight-rules',
     },
     {
@@ -60,11 +69,10 @@
       id: 'sf-erp-sidebar',
       site: 'sf-queue',
       name: 'ERP sidebar',
-      description: 'ERP info cards next to each case in the queue: inspection type, part IDs.',
+      description: 'ERP info cards next to each case in the queue: inspection type, part IDs. ITAR cases: see Settings.',
       cachePrefix: 'erpjob2:',
       actions: [
         { id: 'refresh-all', label: 'Refresh all' },
-        { id: 'clear-cache', label: 'Clear cache' },
       ],
     },
     {

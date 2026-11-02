@@ -30,5 +30,9 @@
     getJson: (url) => send({ type: 'ERP_GET', url }),
   };
 
-  XT.openTab = (url) => send({ type: 'OPEN_TAB', url });
+  // Если расширение перезагрузили, а вкладку нет — открываем вкладку из самой страницы
+  XT.openTab = (url) => send({ type: 'OPEN_TAB', url }).catch((error) => {
+    if (chrome.runtime && chrome.runtime.id) throw error;
+    window.open(url, '_blank', 'noopener');
+  });
 })();

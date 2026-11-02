@@ -4,6 +4,34 @@
   'use strict';
   const XT = (globalThis.XT = globalThis.XT || {});
   const KEY = 'xt:enabled';
+  const PREFS_KEY = 'xt:prefs';
+
+  // Общие настройки расширения (страница Settings в popup)
+  const PREF_DEFAULTS = {
+    paused: false,     // Pause all: все скрипты выключены, их переключатели не трогаются
+    itarUser: false,   // ERP sidebar показывает карточки и для ITAR-кейсов
+  };
+  const prefsWithDefaults = (saved) => ({ ...PREF_DEFAULTS, ...(saved || {}) });
+
+  XT.prefs = {
+    async get() {
+      const items = await chrome.storage.sync.get(PREFS_KEY);
+      return prefsWithDefaults(items[PREFS_KEY]);
+    },
+
+    async set(patch) {
+      const current = await XT.prefs.get();
+      await chrome.storage.sync.set({ [PREFS_KEY]: { ...current, ...patch } });
+    },
+
+    // cb(prefs) вызывается сразу и при каждом изменении
+    watch(cb) {
+      XT.prefs.get().then(cb);
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'sync' && changes[PREFS_KEY]) cb(prefsWithDefaults(changes[PREFS_KEY].newValue));
+      });
+    },
+  };
 
   function withDefaults(saved) {
     const result = {};
@@ -26,15 +54,21 @@
       await chrome.storage.sync.set({ [KEY]: saved });
     },
 
-    // cb(enabled) вызывается сразу с текущим значением и потом при каждом изменении
+    // cb(enabled) вызывается сразу с текущим значением и потом при каждом изменении.
+    // Учитывает Pause all: при паузе скрипт получает false, хотя его переключатель включён.
     watch(scriptId, cb) {
       let current = null;
-      const apply = (all) => {
-        if (all[scriptId] !== current) { current = all[scriptId]; cb(current); }
+      let all = null;
+      let paused = null;
+      const apply = () => {
+        if (all === null || paused === null) return;
+        const on = all[scriptId] && !paused;
+        if (on !== current) { current = on; cb(on); }
       };
-      XT.settings.getAll().then(apply);
+      XT.settings.getAll().then((value) => { all = value; apply(); });
+      XT.prefs.watch((prefs) => { paused = prefs.paused; apply(); });
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'sync' && changes[KEY]) apply(withDefaults(changes[KEY].newValue || {}));
+        if (area === 'sync' && changes[KEY]) { all = withDefaults(changes[KEY].newValue || {}); apply(); }
       });
     },
   };

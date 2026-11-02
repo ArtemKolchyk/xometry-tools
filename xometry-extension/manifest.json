@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Xometry Tools",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Helper scripts for Xometry teams: ERP info cards in the Salesforce case queue and more.",
   "icons": {
     "16": "icons/icon16.png",

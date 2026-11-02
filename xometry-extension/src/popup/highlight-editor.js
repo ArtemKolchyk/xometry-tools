@@ -1,4 +1,5 @@
-// Редактор правил скрипта «Text highlighter»: галочка, текст, цвета, удаление, «+ Add rule».
+// Редактор правил скрипта «Text highlighter»: галочка, название, цвета, удаление; тексты через запятую;
+// где работает (сайт или часть адреса); «+ Add rule».
 // Изменения сохраняются сразу (текст — с задержкой), вкладки подхватывают их через storage.onChanged.
 // Нативный выбор цвета есть только во вкладке (options page): в popup системный диалог закрывает popup.
 'use strict';
@@ -67,21 +68,53 @@ function renderHighlightEditor() {
     return palette;
   }
 
+  // Сайты, на которых работает подсветка (общий скрипт): все не-заглушечные, кроме служебных
+  const siteOptions = [
+    [store.SITE_ALL, 'All sites'],
+    ...XT.registry.sites.filter((s) => !s.stub && !s.general && !s.settings).map((s) => [s.id, s.name]),
+    [store.SITE_CUSTOM, 'Custom (part of URL)…'],
+  ];
+
   function renderRow(rule) {
     const check = el('input', { type: 'checkbox', checked: rule.enabled, title: 'Enable rule' });
-    const text = el('input', { type: 'text', value: rule.text, placeholder: 'Text or phrase', className: 'hl-text' });
+    const name = el('input', { type: 'text', value: rule.name, placeholder: 'Name (notes)', className: 'hl-text hl-name' });
     const chip = el('button', { type: 'button', className: 'hl-chip', textContent: 'Aa', title: 'Colors' });
     const del = el('button', { type: 'button', className: 'hl-del', textContent: '✕', title: 'Delete rule' });
-    const row = el('div', { className: `hl-row${rule.enabled ? '' : ' off'}` }, [check, text, chip, del]);
+    const head = el('div', { className: 'hl-head' }, [check, name, chip, del]);
+    const text = el('input', {
+      type: 'text', value: rule.text, className: 'hl-text hl-texts',
+      placeholder: 'Text to highlight, several: comma-separated',
+      title: 'Several texts with the same colors: separate them with commas',
+    });
+    const site = el('select', { className: 'ar-select' }, siteOptions.map(([value, label]) =>
+      el('option', { value, textContent: label, selected: rule.site === value })));
+    // Сайт из старой версии или удалённый из реестра — показываем как «All sites», пока не выберут другой
+    if (!siteOptions.some(([value]) => value === rule.site)) site.value = store.SITE_ALL;
+    const url = el('input', {
+      type: 'text', value: rule.url, className: 'hl-text hl-url',
+      placeholder: 'e.g. xometry5836.lightning.force.com or /lightning/r/Case/',
+    });
+    const where = el('div', { className: 'hl-where' }, ['Where', site]);
+    const row = el('div', { className: `hl-row${rule.enabled ? '' : ' off'}` }, [head, text, where, url]);
     paint(chip, rule);
+    const syncUrl = () => { url.hidden = site.value !== store.SITE_CUSTOM; };
+    syncUrl();
 
     check.addEventListener('change', () => { rule.enabled = check.checked; row.classList.toggle('off', !rule.enabled); save(); });
+    name.addEventListener('input', () => { rule.name = name.value; save(400); });
     text.addEventListener('input', () => { rule.text = text.value; save(400); });
+    site.addEventListener('change', () => {
+      rule.site = site.value;
+      syncUrl();
+      save();
+      if (!url.hidden) url.focus();
+    });
+    url.addEventListener('input', () => { rule.url = url.value; save(400); });
     chip.addEventListener('click', (e) => {
       e.stopPropagation();
-      const wasOpen = openPalette && openPalette.parentNode === row;
+      const wasOpen = openPalette && openPalette.parentNode === head;
       closePalette();
-      if (!wasOpen) { openPalette = renderPalette(rule, chip); row.append(openPalette); }
+      if (!wasOpen) { openPalette = renderPalette(rule, chip); head.append(openPalette); }
     });
     del.addEventListener('click', () => { rules = rules.filter((r) => r !== rule); save(); render(); });
     return row;
@@ -95,10 +128,10 @@ function renderHighlightEditor() {
 
   addBtn.addEventListener('click', () => {
     const preset = store.PRESETS[rules.length % store.PRESETS.length];
-    rules.push({ text: '', bg: preset.bg, color: preset.color, enabled: true });
+    rules.push({ name: '', text: '', site: store.SITE_ALL, url: '', bg: preset.bg, color: preset.color, enabled: true });
     save();
     render();
-    list.querySelector('.hl-row:last-child .hl-text').focus();
+    list.querySelector('.hl-row:last-child .hl-texts').focus();
   });
   document.addEventListener('click', closePalette);
   window.addEventListener('pagehide', flush);   // popup закрыли раньше, чем сработал таймер

@@ -11,7 +11,8 @@
   const CACHE_TTL_MIN = 30;      // через сколько минут данные считаются устаревшими
   const MAX_CONCURRENT = 2;      // сколько запросов в ERP одновременно
   const CARD_WIDTH = 260;        // ширина карточки, px
-  const JOB_ID_RE = /\bJ[0-9A-Z]{6,10}\b/;
+  // Регистр в теме кейса бывает любой (J03b164A); цифра обязательна, чтобы не ловить слова вроде "January"
+  const JOB_ID_RE = /\bJ(?=[0-9A-Z]*\d)[0-9A-Z]{6,10}\b/i;
   const LIST_PATH = '/lightning/o/Case/list';
   const ITAR_HEADER_RE = /ITAR/i;   // колонка с галочкой (Primary ITAR Field)
   const SUBJECT_HEADER_RE = /^Subject$/i;
@@ -197,15 +198,21 @@
           tr,
           table,
           scroller,
-          jobId: match ? match[0] : null,
+          jobId: match ? match[0].toUpperCase() : null,
           itar: isCheckedCell(itarCell),
         });
       });
     });
 
     rows = found;
-    rows.filter((r) => r.jobId && !r.itar).forEach((r) => enqueue(r.jobId));
+    rows.filter(showsCard).forEach((r) => enqueue(r.jobId));
     renderAll();
+  }
+
+  // ITAR-кейсы (галочка Primary ITAR Field) — только если в Settings включён ITAR user
+  let itarUser = false;
+  function showsCard(row) {
+    return row.jobId && (itarUser || !row.itar);
   }
 
   // ---------------- Карточки ----------------
@@ -315,6 +322,7 @@
       html = 'Loading from ERP…';
       title = row.jobId;
     }
+    if (row.itar) html = '<b style="padding:0 4px;border:1px solid currentColor;border-radius:3px">ITAR</b>' + html;
 
     Object.assign(card.style, { background: color.bg, borderLeftColor: color.border, color: color.text });
     setHtml(main, html);
@@ -334,7 +342,7 @@
   function renderAll() {
     const keep = new Set();
     rows.forEach((row) => {
-      if (!row.jobId || row.itar) return;
+      if (!showsCard(row)) return;
       keep.add(row.key);
       renderCard(row);
     });
@@ -390,7 +398,7 @@
   XT.onAction(SCRIPT_ID, (action) => {
     if (!running) return;
     if (action === 'refresh-all') {
-      rows.filter((r) => r.jobId && !r.itar).forEach((r) => { state.delete(r.jobId); enqueue(r.jobId, true); });
+      rows.filter(showsCard).forEach((r) => { state.delete(r.jobId); enqueue(r.jobId, true); });
     }
     if (action === 'clear-cache') clearCache().then(scanTables);
   });
@@ -419,6 +427,12 @@
     renderAll();   // rows пуст → все карточки удаляются
     layer.remove();
   }
+
+  XT.prefs.watch((prefs) => {
+    if (prefs.itarUser === itarUser) return;
+    itarUser = prefs.itarUser;
+    if (running) scanTables();   // включили — запросит ITAR-кейсы, выключили — renderAll уберёт их карточки
+  });
 
   // Ждём загрузки кеша, чтобы первый рендер не запросил заново всё, что уже есть
   cache.ready.then(() => XT.settings.watch(SCRIPT_ID, (on) => (on ? start() : stop())));

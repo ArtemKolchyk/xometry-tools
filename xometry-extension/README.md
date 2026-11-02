@@ -15,10 +15,13 @@ in the popup and can be turned on/off individually.
 - `manifest.json`
 - `src/common/` — plain scripts (MV3 content scripts can't use ES `import`); each adds to `globalThis.XT`
   - `registry.js` — sites and scripts list; the popup is built from it
-  - `settings.js` — on/off switches (`chrome.storage.sync`) and popup → content script actions
+  - `settings.js` — on/off switches (`chrome.storage.sync`), extension-wide prefs `XT.prefs` (Pause all, ITAR user)
+    and popup → content script actions. `XT.settings.watch` already honors Pause all
   - `storage-cache.js` — `chrome.storage.local` cache with an in-memory `Map` (synchronous `get`)
   - `erp-client.js` — ERP API for content scripts: URLs, `getJson`, `openTab` (via background)
-  - `highlight-rules.js` — rules of the Text highlighter (`chrome.storage.sync`) and color presets
+  - `highlight-rules.js` — rules of the Text highlighter (`chrome.storage.sync`) and color presets.
+    A rule has a name (notes), comma-separated texts and a place: all sites, one registry site or part of a URL.
+    Custom URLs work only where the highlighter is loaded (`content_scripts` in `manifest.json`)
   - `quick-text-buttons.js` — buttons of Case quick text (`chrome.storage.sync`), color presets and page slots
   - `sf-dom.js` — Salesforce DOM helpers: shadow-DOM search, the Launch VQC cell on a Case
 - `src/background/service-worker.js` — ERP requests with `credentials: 'include'`, opening tabs, ERP login status
@@ -34,7 +37,8 @@ in the popup and can be turned on/off individually.
 - `src/content/text-highlighter.js` — general script: highlights text via the CSS Custom Highlight API (no DOM changes)
 - `src/content/auto-refresh.js` — general script: reloads the page on a timer, waits while the user is active
   or a focused field has unsaved text. Per-script settings live in `XT.options` (defaults: `options` in the registry)
-- `src/popup/` — popup (also used as the options page); `highlight-editor.js` — rules editor
+- `src/popup/` — popup (also used as the options page); `highlight-editor.js` — rules editor;
+  `settings-page.js` — the Settings page: Pause all, ITAR user, ERP and cache, backup (export/import), storage, about
 
 ## General scripts
 

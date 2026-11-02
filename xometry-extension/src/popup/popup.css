@@ -94,8 +94,8 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
 .site[aria-current="true"] { border-left-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 .site .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .site .here { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
-.site.general { margin-bottom: 6px; position: relative; }
-.site.general::after {
+.site.divided { margin-bottom: 6px; position: relative; }
+.site.divided::after {
   content: ""; position: absolute; left: 12px; right: 12px; bottom: -4px; border-bottom: 1px solid var(--border);
 }
 
@@ -144,15 +144,42 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
 .btn:hover:not(:disabled) { border-color: var(--accent); }
 .btn:disabled { color: var(--muted); cursor: default; }
 
+/* Плашка «All scripts are paused» над скриптами сайта */
+.banner { padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); font-size: 12px; }
+.banner a { color: var(--accent); cursor: pointer; }
+
+/* Страница Settings */
+.set-status { margin-top: 6px; font-size: 12px; }
+.set-status.ok { color: var(--ok); }
+.set-status.bad { color: var(--bad); }
+.set-import { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.set-import:not(:empty) { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.script .set-import p { margin: 0; color: var(--text); }
+.usage-track { height: 8px; margin-top: 6px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.usage-fill { width: 0; height: 100%; background: var(--accent); }
+.usage-fill.warn { background: var(--bad); }
+.usage-lines { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
+.usage-lines li { display: flex; justify-content: space-between; gap: 12px; }
+.changelog { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
+.changelog b { color: var(--text); font-weight: 600; }
+
 /* Редактор правил подсветки */
 .hl-editor { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
-.hl-list { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.hl-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .hl-list > .muted { margin: 0; }
-.hl-row { position: relative; display: flex; align-items: center; gap: 6px; }
-.hl-row.off .hl-text, .hl-row.off .hl-chip { opacity: .45; }
+.hl-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+}
+.hl-head { position: relative; display: flex; align-items: center; gap: 6px; }
+.hl-row.off .hl-text, .hl-row.off .hl-chip, .hl-row.off .hl-where { opacity: .45; }
 .hl-row input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.hl-name { font-weight: 600; }
+.hl-texts, .hl-url { flex: none; margin-left: 19px; }
+.hl-where { display: flex; align-items: center; gap: 6px; margin-left: 19px; font-size: 12px; color: var(--muted); }
+.hl-where .ar-select { flex: 1; min-width: 0; }
 .hl-text {
-  flex: 1; min-width: 0; height: 26px; padding: 0 8px;
+  flex: 1; min-width: 0; box-sizing: border-box; height: 26px; padding: 0 8px;
   border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit;
 }
 .hl-text:focus { outline: none; border-color: var(--accent); }

@@ -1,6 +1,7 @@
 // Text highlighter (общий скрипт): подсвечивает текст по правилам из popup.
 // Использует CSS Custom Highlight API: DOM страницы не меняется, поэтому компоненты Salesforce не ломаются.
 // Совпадение — подстрока без учёта регистра внутри одного текстового узла.
+// В правиле может быть несколько текстов через запятую и ограничение по сайту (XT.highlightRules.appliesTo).
 
 (function () {
   'use strict';
@@ -15,7 +16,7 @@
     return;
   }
 
-  let rules = [];          // только включённые правила с непустым текстом
+  let rules = [];          // только включённые правила с непустым текстом; needles — тексты в нижнем регистре
   let usedNames = 0;       // сколько highlight-ов зарегистрировано в CSS.highlights
 
   // Стили ::highlight() не проходят через границу shadow DOM — добавляем таблицу в каждый shadow root
@@ -59,23 +60,30 @@
     clearHighlights();
     if (!rules.length || !document.body) return;
 
+    // Salesforce — SPA: адрес меняется без перезагрузки, поэтому сайт правила проверяем на каждом скане
+    const href = location.href;
+    const active = rules.map((r) => XT.highlightRules.appliesTo(r, href));
+    if (!active.some(Boolean)) return;
+
     const nodes = [];
     collectTextNodes(document.body, nodes);
-    const needles = rules.map((r) => r.text.toLowerCase());
     const highlights = rules.map(() => new Highlight());
 
     nodes.forEach((node) => {
       const hay = node.data.toLowerCase();
-      needles.forEach((needle, i) => {
-        let from = 0;
-        let idx;
-        while ((idx = hay.indexOf(needle, from)) !== -1) {
-          highlights[i].add(new StaticRange({
-            startContainer: node, startOffset: idx,
-            endContainer: node, endOffset: idx + needle.length,
-          }));
-          from = idx + needle.length;
-        }
+      rules.forEach((rule, i) => {
+        if (!active[i]) return;
+        rule.needles.forEach((needle) => {
+          let from = 0;
+          let idx;
+          while ((idx = hay.indexOf(needle, from)) !== -1) {
+            highlights[i].add(new StaticRange({
+              startContainer: node, startOffset: idx,
+              endContainer: node, endOffset: idx + needle.length,
+            }));
+            from = idx + needle.length;
+          }
+        });
       });
     });
 
@@ -106,7 +114,9 @@
   }
 
   XT.highlightRules.watch((list) => {
-    rules = list.filter((r) => r.enabled && r.text.trim()).map((r) => ({ ...r, text: r.text.trim() }));
+    rules = list
+      .map((r) => ({ ...r, needles: XT.highlightRules.splitTexts(r.text).map((t) => t.toLowerCase()) }))
+      .filter((r) => r.enabled && r.needles.length);
     updateStyles();
     if (running) scan();
   });

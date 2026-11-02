@@ -1,4 +1,5 @@
-// Правила подсветки текста (скрипт «Text highlighter»): [{ text, bg, color, enabled }].
+// Правила подсветки текста (скрипт «Text highlighter»): [{ name, text, site, url, bg, color, enabled }].
+// text — один или несколько текстов через запятую; name — заметка для себя, на странице не используется.
 // Хранятся в chrome.storage.sync — едут вместе с профилем Chrome.
 (function () {
   'use strict';
@@ -22,18 +23,49 @@
     { bg: '#0176d3', color: '#ffffff' },
   ];
 
+  // Где работает правило: все сайты, один сайт из реестра или своя часть адреса (url)
+  const SITE_ALL = 'all';
+  const SITE_CUSTOM = 'custom';
+
   // Цвета попадают в CSS, поэтому всё, что не #rrggbb, заменяем на первый пресет
   function normalize(list) {
     return (Array.isArray(list) ? list : []).map((r) => ({
+      name: String((r && r.name) || ''),
       text: String((r && r.text) || ''),
+      site: String((r && r.site) || SITE_ALL),
+      url: String((r && r.url) || ''),
       bg: COLOR_RE.test(r && r.bg) ? r.bg : PRESETS[0].bg,
       color: COLOR_RE.test(r && r.color) ? r.color : PRESETS[0].color,
       enabled: !(r && r.enabled === false),
     }));
   }
 
+  // 'https://*.lightning.force.com/*' → RegExp
+  function matchPatternRe(pattern) {
+    return new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+  }
+
+  // Несколько текстов в одном правиле — через запятую
+  function splitTexts(text) {
+    return String(text).split(',').map((t) => t.trim()).filter(Boolean);
+  }
+
+  function appliesTo(rule, href) {
+    if (rule.site === SITE_ALL) return true;
+    if (rule.site === SITE_CUSTOM) {
+      const part = rule.url.trim().toLowerCase();
+      return !part || href.toLowerCase().includes(part);
+    }
+    const site = XT.registry && XT.registry.sites.find((s) => s.id === rule.site);
+    return !!site && site.matches.some((m) => matchPatternRe(m).test(href));
+  }
+
   XT.highlightRules = {
     PRESETS,
+    SITE_ALL,
+    SITE_CUSTOM,
+    splitTexts,
+    appliesTo,
 
     async get() {
       const items = await chrome.storage.sync.get(KEY);

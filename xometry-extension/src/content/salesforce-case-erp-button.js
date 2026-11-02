@@ -4,7 +4,8 @@
 
   const SCRIPT_ID = 'sf-case-erp-button';
   const CASE_PATH_RE = /^\/lightning\/r\/Case\/[^/]+\/view\/?$/;
-  const JOB_ID_RE = /\bJ[0-9A-Z]{6,10}\b/;
+  // Регистр в теме кейса бывает любой (J03b164A); цифра обязательна, чтобы не ловить слова вроде "January"
+  const JOB_ID_RE = /\bJ(?=[0-9A-Z]*\d)[0-9A-Z]{6,10}\b/i;
   const BUTTON_ID = 'xt-open-case-job-in-erp';
   const { deepQueryAll, deepText, parentAcrossShadow } = XT.dom;
 
@@ -16,11 +17,12 @@
       let candidate = label;
       for (let depth = 0; candidate && depth < 4; depth++, candidate = parentAcrossShadow(candidate)) {
         const match = deepText(candidate).match(JOB_ID_RE);
-        if (match) return match[0];
+        if (match) return match[0].toUpperCase();
       }
     }
 
-    const matches = new Set((document.body.innerText.match(/\bJ[0-9A-Z]{6,10}\b/g) || []));
+    const all = document.body.innerText.match(new RegExp(JOB_ID_RE.source, 'gi')) || [];
+    const matches = new Set(all.map((id) => id.toUpperCase()));
     return matches.size === 1 ? [...matches][0] : null;
   }
 
@@ -49,9 +51,9 @@
     });
     button.addEventListener('click', (event) => {
       event.stopPropagation();
+      // Открываем прямо со страницы: клик пользователя разрешает window.open, background не нужен
       const jobId = button.dataset.jobId;
-      if (jobId) XT.openTab(XT.erp.jobPageUrl(jobId))
-        .catch((error) => console.warn('[Case ERP button]', error.message));
+      if (jobId) window.open(XT.erp.jobPageUrl(jobId), '_blank', 'noopener');
     });
     return button;
   }
