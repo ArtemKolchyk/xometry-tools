@@ -2,10 +2,10 @@
 // Принимает только URL из разрешённых доменов, чтобы не быть прокси для произвольных запросов.
 'use strict';
 
-const ERP_API_ORIGIN = 'https://api.xometry.com/';
+const ERP_API_ORIGINS = ['https://api.xometry.com/', 'https://www.xometry.com/api/'];
 const OPEN_TAB_ORIGINS = ['https://www.xometry.com/'];
 const AUTH_KEY = 'xt:erpAuth';   // последний известный статус входа в ERP, показывается в popup
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 60000;   // по некоторым джобам ERP отвечает дольше 20 с
 
 let lastAuth = null;
 
@@ -50,7 +50,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.url !== 'string') return false;
 
   if (msg.type === 'ERP_GET') {
-    if (!msg.url.startsWith(ERP_API_ORIGIN)) {
+    if (!ERP_API_ORIGINS.some((o) => msg.url.startsWith(o))) {
       sendResponse({ ok: false, error: 'URL is not allowed' });
       return false;
     }

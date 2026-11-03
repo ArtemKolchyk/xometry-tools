@@ -70,7 +70,9 @@
       site: 'sf-queue',
       name: 'ERP sidebar',
       description: 'ERP info cards next to each case in the queue: inspection type, part IDs. ITAR cases: see Settings.',
-      cachePrefix: 'erpjob2:',
+      cachePrefix: 'erpjob6:',
+      partnerCachePrefix: 'erpvendor1:',   // статистика партнёра (Jobs completed) по acceptedVendor
+      customerCachePrefix: 'erpcustomer1:',   // клиент джобы: компания, контакт, email
       actions: [
         { id: 'refresh-all', label: 'Refresh all' },
       ],

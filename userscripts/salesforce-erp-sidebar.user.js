@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Salesforce Case Queue: ERP sidebar
 // @namespace    https://example.com/
-// @version      0.4
+// @version      0.5
 // @description  ERP info cards next to each case in the queue (inspection type, part IDs)
 // @match        https://*.lightning.force.com/*
 // @grant        GM_xmlhttpRequest
@@ -34,7 +34,7 @@
   const SUBJECT_HEADER_RE = /^Subject$/i;
   // ==========================================================
 
-  const CACHE_PREFIX = 'erpjob2:'; // v2: новый формат данных, старый кеш игнорируется
+  const CACHE_PREFIX = 'erpjob3:'; // v3: запись на каждый line item, старый кеш игнорируется
   const COLORS = {
     std: { bg: '#e3f5e8', border: '#2e844a', text: '#194e31' },
     nonstd: { bg: '#fff6d6', border: '#dd9e00', text: '#5c4300' },
@@ -108,23 +108,23 @@
   function summarize(data) {
     const lineItems = Array.isArray(data && data.lineItems) ? data.lineItems : [];
 
-    // Одна запись на каждый уникальный part ID
-    const byPart = new Map();
-    lineItems.forEach((li) => {
+    // Одна запись на каждый line item: один и тот же part ID может стоять в нескольких
+    // строках с разной инспекцией, поэтому по part ID не схлопываем
+    const parts = lineItems.map((li) => {
       const partId = li.customerPartId || (li.partView && li.partView.partNameDisplay) || li.jobLineItemId || '?';
       const code = li.inspectionId || '';
-      const display = (li.requirementsDisplay || li.requirements_display || [])
-        .find((r) => r.label === 'Inspection');
-      const inspection = display ? display.value : (code || 'Unknown');
-      if (!byPart.has(partId)) {
-        byPart.set(partId, {
-          partId,
-          inspection,
-          isStd: code === 'std' || /^standard inspection$/i.test(inspection),
-        });
-      }
+      const values = (li.requirementsDisplay || li.requirements_display || [])
+        .filter((r) => r.label === 'Inspection' && r.value)
+        .map((r) => r.value);
+      const inspection = values.length ? values.join(', ') : (code || 'Unknown');
+      return {
+        partId,
+        inspection,
+        isStd: values.length
+          ? values.every((v) => /^standard inspection$/i.test(v))
+          : code === 'std',
+      };
     });
-    const parts = [...byPart.values()];
 
     return {
       partCount: parts.length,

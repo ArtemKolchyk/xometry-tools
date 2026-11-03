@@ -13,7 +13,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://api.xometry.com/*"
+    "https://api.xometry.com/*",
+    "https://www.xometry.com/api/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js"

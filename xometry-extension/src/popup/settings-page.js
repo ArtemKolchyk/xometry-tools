@@ -66,6 +66,8 @@ function erpCard() {
   // Чистим storage сами, чтобы кеш очищался и без открытых вкладок; вкладки после этого пересканируют таблицу
   async function clearCache() {
     await XT.storage.clearByPrefix(cachePrefix);
+    await XT.storage.clearByPrefix(XT.registry.getScript('sf-erp-sidebar').partnerCachePrefix);
+    await XT.storage.clearByPrefix(XT.registry.getScript('sf-erp-sidebar').customerCachePrefix);
     const sfSite = XT.registry.sites.find((s) => s.id === 'sf-queue');
     await broadcast(sfSite, { type: 'XT_ACTION', scriptId: 'sf-erp-sidebar', action: 'clear-cache' });
     showMessage('ERP cache cleared');

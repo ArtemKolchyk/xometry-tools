@@ -26,6 +26,11 @@
   XT.erp = {
     jobApiUrl: (jobId) => `https://api.xometry.com/fulfillment/admin/jobs/${jobId}`,
     jobPageUrl: (jobId) => `https://www.xometry.com/erp/jobs/${jobId}`,
+    // vendor — поле acceptedVendor из ответа по джобе (не partnerId)
+    vendorStatsUrl: (vendor) => `https://api.xometry.com/v2/jobs/metadata?completed=true&vendor=${encodeURIComponent(vendor)}`,
+    jobPlanUrl: (jobId) => `https://www.xometry.com/api/job-plan/?jobId=${encodeURIComponent(jobId)}`,
+    userUrl: (userId) => `https://api.xometry.com/v2/users/${encodeURIComponent(userId)}?embed_company=true`,
+    partnerPageUrl: (partnerId) => `https://staff.xometry.com/partners/${encodeURIComponent(partnerId)}`,
     // GET с cookies пользователя; резолвится распарсенным JSON
     getJson: (url) => send({ type: 'ERP_GET', url }),
   };

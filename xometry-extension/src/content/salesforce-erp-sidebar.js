@@ -10,7 +10,9 @@
   // ======================= НАСТРОЙКИ =======================
   const CACHE_TTL_MIN = 30;      // через сколько минут данные считаются устаревшими
   const MAX_CONCURRENT = 2;      // сколько запросов в ERP одновременно
+  const RETRY_DELAYS_MS = [3000, 10000];   // повторы при временных сбоях (таймаут, сеть, 5xx, 429)
   const CARD_WIDTH = 260;        // ширина карточки, px
+  const DETAILS_WIDTH = 480;     // ширина панели More; выступает влево от карточки поверх таблицы
   // Регистр в теме кейса бывает любой (J03b164A); цифра обязательна, чтобы не ловить слова вроде "January"
   const JOB_ID_RE = /\bJ(?=[0-9A-Z]*\d)[0-9A-Z]{6,10}\b/i;
   const LIST_PATH = '/lightning/o/Case/list';
@@ -18,7 +20,10 @@
   const SUBJECT_HEADER_RE = /^Subject$/i;
   // ==========================================================
 
-  const CACHE_PREFIX = XT.registry.getScript(SCRIPT_ID).cachePrefix; // 'erpjob2:'
+  const CACHE_PREFIX = XT.registry.getScript(SCRIPT_ID).cachePrefix; // 'erpjob6:'
+  const PARTNER_CACHE_PREFIX = XT.registry.getScript(SCRIPT_ID).partnerCachePrefix;
+  const CUSTOMER_CACHE_PREFIX = XT.registry.getScript(SCRIPT_ID).customerCachePrefix;
+  const EXTRA_TTL_MIN = 12 * 60;   // партнёр и клиент меняются медленно
   const COLORS = {
     std: { bg: '#e3f5e8', border: '#2e844a', text: '#194e31' },
     nonstd: { bg: '#fff6d6', border: '#dd9e00', text: '#5c4300' },
@@ -86,7 +91,68 @@
     return entry && Date.now() - entry.time < CACHE_TTL_MIN * 60 * 1000;
   }
   function clearCache() {
-    return cache.clear();
+    return Promise.all([cache.clear(), partnerInfo.clear(), customerInfo.clear()]);
+  }
+
+  // ---------------- Доп. данные для панели More (партнёр, клиент) ----------------
+  // Запрашиваются только при открытии панели, отдельно от очереди джобов.
+  // fetcher(key) резолвится объектом с данными; он кладётся в кеш вместе с time.
+  function lazyInfo(prefix, fetcher) {
+    const store = XT.createCache(prefix);
+    const state = new Map();   // key -> { status:'loading'|'error', message }
+    return {
+      ready: store.ready,
+      load(key, force = false) {
+        if (!key) return;
+        const entry = store.get(key);
+        if (!force && (state.has(key) || (entry && Date.now() - entry.time < EXTRA_TTL_MIN * 60 * 1000))) return;
+        state.set(key, { status: 'loading' });
+        fetcher(key)
+          .then((data) => { store.set(key, { time: Date.now(), ...data }); state.delete(key); })
+          .catch((err) => state.set(key, { status: 'error', message: err.message }))
+          .finally(renderAll);
+      },
+      // Данные из кеша, либо { error } / { loading: true }
+      get(key) {
+        const entry = store.get(key);
+        if (entry) return entry;
+        const st = state.get(key);
+        return st && st.status === 'error' ? { error: st.message } : { loading: true };
+      },
+      forget(key) { state.delete(key); },
+      clear() { state.clear(); return store.clear(); },
+    };
+  }
+
+  // vendor (acceptedVendor) -> { completedJobs }
+  const partnerInfo = lazyInfo(PARTNER_CACHE_PREFIX, (vendor) =>
+    XT.erp.getJson(XT.erp.vendorStatsUrl(vendor))
+      .then((d) => ({ completedJobs: d && d.total_completed_jobs })));
+
+  // jobId -> { company, contact, email }. ID клиента — начало orderId (E0954-15001 -> E0954).
+  // orderId берём из ответа по джобе, а если там нет — из job-plan.
+  const customerInfo = lazyInfo(CUSTOMER_CACHE_PREFIX, async (jobId) => {
+    const entry = cacheGet(jobId);
+    let orderId = entry && entry.summary.orderId;
+    if (!orderId) {
+      const plan = await XT.erp.getJson(XT.erp.jobPlanUrl(jobId));
+      orderId = plan && plan.data && plan.data.orderId;
+    }
+    const userId = orderId && String(orderId).split('-')[0];
+    if (!userId) throw new Error('No order ID for this job');
+    const u = (await XT.erp.getJson(XT.erp.userUrl(userId))) || {};
+    return {
+      company: u.company_name || (u.company && u.company.name) || '',
+      contact: [u.first_name, u.last_name].filter(Boolean).join(' '),
+      email: u.email_address || '',
+    };
+  });
+
+  // Текст значения: данные, «Loading…» или ошибка
+  function infoText(info, value) {
+    if (info.error) return `⚠ ${info.error}`;
+    if (info.loading) return 'Loading…';
+    return value == null || value === '' ? '—' : String(value);
   }
 
   // ---------------- Разбор ответа ERP ----------------
@@ -95,29 +161,33 @@
   function summarize(data) {
     const lineItems = Array.isArray(data && data.lineItems) ? data.lineItems : [];
 
-    // Одна запись на каждый уникальный part ID
-    const byPart = new Map();
-    lineItems.forEach((li) => {
+    // Одна запись на каждый line item: один и тот же part ID может стоять в нескольких
+    // строках с разной инспекцией, поэтому по part ID не схлопываем
+    const parts = lineItems.map((li) => {
       const partId = li.customerPartId || (li.partView && li.partView.partNameDisplay) || li.jobLineItemId || '?';
       const code = li.inspectionId || '';
-      const display = (li.requirementsDisplay || li.requirements_display || [])
-        .find((r) => r.label === 'Inspection');
-      const inspection = display ? display.value : (code || 'Unknown');
-      if (!byPart.has(partId)) {
-        byPart.set(partId, {
-          partId,
-          inspection,
-          isStd: code === 'std' || /^standard inspection$/i.test(inspection),
-        });
-      }
+      const values = (li.requirementsDisplay || li.requirements_display || [])
+        .filter((r) => r.label === 'Inspection' && r.value)
+        .map((r) => r.value);
+      const inspection = values.length ? values.join(', ') : (code || 'Unknown');
+      return {
+        partId,
+        inspection,
+        isStd: values.length
+          ? values.every((v) => /^standard inspection$/i.test(v))
+          : code === 'std',
+      };
     });
-    const parts = [...byPart.values()];
 
     return {
       partCount: parts.length,
       allStd: parts.length > 0 && parts.every((p) => p.isStd),
       jobStatus: (data && data.status) || '',
       partner: (data && data.partnerCompanyName) || '',
+      partnerId: (data && data.partnerId) || '',
+      vendor: (data && data.acceptedVendor) || '',
+      // Есть ли orderId в этом ответе, не проверено; если нет, клиент найдётся через job-plan
+      orderId: (data && (data.orderId || (Array.isArray(data.orderIds) && data.orderIds[0]))) || '',
       parts,
     };
   }
@@ -125,11 +195,30 @@
   // ---------------- Запросы в ERP (очередь) ----------------
   const queue = [];
   const inFlight = new Set();
+  const retries = new Map();   // jobId -> сколько повторов уже сделано
   let active = 0;
+
+  // Не повторяем то, что само не пройдёт: нет входа в ERP, 404, перезагрузка расширения
+  function isPermanent(err) {
+    return /Not authorized|responded with 4(?!29)\d\d|not allowed|reload the page/i.test(err.message);
+  }
+
+  function onFetchError(jobId, err) {
+    const n = retries.get(jobId) || 0;
+    if (isPermanent(err) || n >= RETRY_DELAYS_MS.length) {
+      retries.delete(jobId);
+      state.set(jobId, { status: 'error', message: err.message });
+      return;
+    }
+    retries.set(jobId, n + 1);
+    console.warn(`[ERP sidebar] ${jobId}: ${err.message}, retry ${n + 1}`);
+    setTimeout(() => { if (running) enqueue(jobId, true); }, RETRY_DELAYS_MS[n]);
+  }
 
   function enqueue(jobId, force = false) {
     if (inFlight.has(jobId) || queue.includes(jobId)) return;
-    if (!force && isFresh(cacheGet(jobId))) return;
+    // state есть, пока джоба в работе, ждёт повтора или упала: такие перезапрашиваем только явно
+    if (!force && (isFresh(cacheGet(jobId)) || state.has(jobId))) return;
     queue.push(jobId);
     pump();
   }
@@ -141,8 +230,8 @@
       inFlight.add(jobId);
       state.set(jobId, { status: 'loading' });
       fetchJob(jobId)
-        .then((summary) => { cacheSet(jobId, summary); state.delete(jobId); })
-        .catch((err) => { state.set(jobId, { status: 'error', message: err.message }); })
+        .then((summary) => { cacheSet(jobId, summary); state.delete(jobId); retries.delete(jobId); })
+        .catch((err) => onFetchError(jobId, err))
         .finally(() => { active--; inFlight.delete(jobId); renderAll(); pump(); });
     }
   }
@@ -263,7 +352,10 @@
 
     toggle.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
+      // Открыта может быть только одна панель
+      const wasOpen = expanded.has(key);
+      expanded.clear();
+      if (!wasOpen) expanded.add(key);
       renderAll();
     });
 
@@ -275,13 +367,37 @@
   }
 
   // Содержимое раскрывающейся панели. Новые блоки информации добавлять сюда.
-  function renderDetails(s) {
+  function renderDetails(s, jobId) {
     const rowsHtml = s.parts.map((p) => `
       <tr>
         <td style="padding:2px 12px 2px 0;font-weight:600">${escapeHtml(p.partId)}</td>
         <td style="padding:2px 0;color:${p.isStd ? COLORS.std.border : COLORS.nonstd.text}">${escapeHtml(p.inspection)}</td>
       </tr>`).join('');
+    const label = (t) => `<div style="color:#706e6b">${t}</div>`;
+    const partnerHtml = `
+      <div style="flex:1;min-width:0">
+        ${label('Partner')}
+        <div style="font-weight:600">${s.partnerId
+          ? `<a href="${XT.erp.partnerPageUrl(s.partnerId)}" target="_blank" rel="noopener">${escapeHtml(s.partner || s.partnerId)}</a>`
+          : escapeHtml(s.partner || '—')}</div>
+        <div style="margin-top:2px"><span style="color:#706e6b">Jobs completed:</span>
+          <b>${escapeHtml(s.vendor ? infoText(partnerInfo.get(s.vendor), partnerInfo.get(s.vendor).completedJobs) : '—')}</b></div>
+      </div>`;
+    const cu = customerInfo.get(jobId);
+    const customerHtml = `
+      <div style="flex:1;min-width:0;padding-left:12px;border-left:1px solid #e5e5e5">
+        ${label('Customer')}
+        ${cu.loading || cu.error
+          ? `<div>${escapeHtml(infoText(cu))}</div>`
+          : `<div style="font-weight:600">${escapeHtml(infoText(cu, cu.company))}</div>
+        <div style="margin-top:2px">${escapeHtml(infoText(cu, cu.contact))}</div>
+        <div style="margin-top:2px;overflow-wrap:anywhere">${cu.email
+          ? `<a href="mailto:${encodeURIComponent(cu.email)}">${escapeHtml(cu.email)}</a>` : '—'}</div>`}
+      </div>`;
     return `
+      <div style="display:flex;gap:12px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e5e5e5;white-space:normal">
+        ${partnerHtml}${customerHtml}
+      </div>` + `
       <table style="border-collapse:collapse;width:100%">
         <thead><tr>
           <th style="text-align:left;padding:0 12px 4px 0;color:#706e6b;font-weight:400">Part ID</th>
@@ -289,6 +405,18 @@
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`;
+  }
+
+  // Клик в любом месте экрана закрывает панель. Ловим на capture: Salesforce может
+  // гасить всплытие у своих элементов. Клики по кнопке More/Less и внутри панели не трогаем.
+  function onDocClick(e) {
+    if (!expanded.size) return;
+    const path = e.composedPath();
+    for (const c of cards.values()) {
+      if (path.includes(c.toggle) || path.includes(c.details)) return;
+    }
+    expanded.clear();
+    renderAll();
   }
 
   function setHtml(el, html) {
@@ -306,8 +434,8 @@
 
     if (st && st.status === 'error') {
       color = COLORS.error;
-      html = `⚠ ${row.jobId}: error`;
-      title = st.message;
+      html = `⚠ ${row.jobId}: ${escapeHtml(st.message)}`;
+      title = `${st.message}\nShift+click: retry`;
     } else if (entry) {
       summary = entry.summary;
       color = summary.allStd ? COLORS.std : COLORS.nonstd;
@@ -328,7 +456,14 @@
     setHtml(main, html);
     main.title = title;
     main.onclick = (e) => {
-      if (e.shiftKey) { state.delete(row.jobId); enqueue(row.jobId, true); renderAll(); }
+      if (e.shiftKey) {
+        state.delete(row.jobId);
+        enqueue(row.jobId, true);
+        // Упавшие запросы по партнёру и клиенту тоже повторятся при следующем открытии More
+        if (summary && summary.vendor) partnerInfo.forget(summary.vendor);
+        customerInfo.forget(row.jobId);
+        renderAll();
+      }
       else XT.openTab(XT.erp.jobPageUrl(row.jobId)).catch((err) => console.warn('[ERP sidebar]', err.message));
     };
 
@@ -336,7 +471,11 @@
     toggle.style.display = summary ? '' : 'none';
     toggle.textContent = isOpen ? '▴ Less' : '▾ More';
     details.dataset.open = isOpen ? '1' : '';
-    if (isOpen) setHtml(details, renderDetails(summary));
+    if (isOpen) {
+      partnerInfo.load(summary.vendor);
+      customerInfo.load(row.jobId);
+      setHtml(details, renderDetails(summary, row.jobId));
+    }
   }
 
   function renderAll() {
@@ -384,7 +523,9 @@
       });
       if (details.dataset.open) {
         Object.assign(details.style, {
-          display: 'block', top: `${r.bottom - 1}px`, left: `${left}px`, width: `${width}px`,
+          // Правый край панели совпадает с правым краем карточки
+          display: 'block', top: `${r.bottom - 1}px`, width: `${Math.max(width, DETAILS_WIDTH)}px`,
+          left: `${Math.max(8, left + width - Math.max(width, DETAILS_WIDTH))}px`,
         });
       } else {
         details.style.display = 'none';
@@ -412,6 +553,7 @@
     if (running) return;
     running = true;
     document.body.appendChild(layer);
+    document.addEventListener('click', onDocClick, true);
     scanTimer = setInterval(scanTables, 1500);
     scanTables();
     rafId = requestAnimationFrame(positionCards);
@@ -420,6 +562,7 @@
   function stop() {
     if (!running) return;
     running = false;
+    document.removeEventListener('click', onDocClick, true);
     clearInterval(scanTimer);
     cancelAnimationFrame(rafId);
     queue.length = 0;
@@ -435,5 +578,5 @@
   });
 
   // Ждём загрузки кеша, чтобы первый рендер не запросил заново всё, что уже есть
-  cache.ready.then(() => XT.settings.watch(SCRIPT_ID, (on) => (on ? start() : stop())));
+  Promise.all([cache.ready, partnerInfo.ready, customerInfo.ready]).then(() => XT.settings.watch(SCRIPT_ID, (on) => (on ? start() : stop())));
 })();
