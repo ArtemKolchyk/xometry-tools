@@ -11,8 +11,8 @@ function renderAutoRefreshEditor(scriptId) {
 
   const box = el('div', { className: 'ar-editor' }, [
     el('label', { className: 'ar-row' }, ['Every ', interval, ' min']),
-    el('label', { className: 'ar-row' }, [pause, ' Pause while I\'m active on the page']),
-    el('label', { className: 'ar-row ar-sub' }, ['Resume after ', idle, ' without activity']),
+    el('label', { className: 'ar-row' }, [pause, ' Pause after my clicks or key presses in the tab']),
+    el('label', { className: 'ar-row ar-sub' }, ['Resume after ', idle, ' without clicks or keys']),
   ]);
 
   let opts = null;

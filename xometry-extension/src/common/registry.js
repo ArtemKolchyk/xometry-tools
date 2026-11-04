@@ -60,7 +60,8 @@
       id: 'auto-refresh',
       site: 'general',
       name: 'Auto refresh',
-      description: 'Reloads the page on a timer. Never reloads while a focused field has unsaved text.',
+      description: 'Reloads the page on a timer. Mouse movement and scrolling are ignored: only clicks and key presses '
+        + 'count as activity. Never reloads while a field or an open editor (e.g. an email) has text.',
       defaultEnabled: false,
       editor: 'auto-refresh',
       options: { intervalMin: 5, pauseWhenActive: true, idleSec: 60 },
@@ -92,6 +93,14 @@
       actions: [
         { id: 'arrange', label: 'Arrange on page' },
       ],
+    },
+    {
+      id: 'partner-rating',
+      site: 'sf-queue',
+      name: 'Partner rating',
+      description: 'Your personal 🔴 🟡 🟢 rating of partners. Right-click a contact name (or selected text) → '
+        + 'Partner rating. Stored only in this browser: use Export for a backup.',
+      editor: 'partner-rating',
     },
     {
       id: 'sf-placeholder',

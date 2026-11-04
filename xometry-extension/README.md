@@ -32,11 +32,18 @@ in the popup and can be turned on/off individually.
   - `src/common/quick-text-buttons.js` — the buttons `[{ id, label, text, bg, color }]` in `chrome.storage.sync`,
     one item per button (8 KB per-item limit) + an index of ids for the order
   - `src/popup/quick-text-editor.js` — editor: label, colors, text, drag to reorder, delete, «+ Add button»
+- `src/content/partner-rating.js` — personal 🔴 🟡 🟢 rating of partners. Right-click a contact link or selected
+  text → **Partner rating** (menu: `contextMenus` in `service-worker.js`, which sends `XT_RATE` to the tab).
+  Highlights the whole link text by Salesforce record ID, or plain text equal to the name (no substrings)
+  - `src/common/partner-rating.js` — storage in `chrome.storage.local` (personal, not synced, not in the settings backup):
+    `{ 'id:<15-char id>' | 'name:<lowercase name>': { name, rating, note, updated } }`
+  - `src/popup/partner-rating-editor.js` — list with search, color, name, note, delete; add by name; own export/import
 - `src/content/qcc-quick-verdict.js` — QC Center: Accept All / Reject All in the Submit Verdict dialog;
   port of `userscripts/QCC - Accept or Reject.txt`
 - `src/content/text-highlighter.js` — general script: highlights text via the CSS Custom Highlight API (no DOM changes)
-- `src/content/auto-refresh.js` — general script: reloads the page on a timer, waits while the user is active
-  or a focused field has unsaved text. Per-script settings live in `XT.options` (defaults: `options` in the registry)
+- `src/content/auto-refresh.js` — general script: reloads the page on a timer. Activity = clicks and key presses
+  in the tab (not mouse movement/scroll). Never reloads while a focused field or any visible editor (contenteditable,
+  textarea) has text — also inside same-origin iframes (the Salesforce email editor is an iframe). Per-script settings live in `XT.options` (defaults: `options` in the registry)
 - `src/popup/` — popup (also used as the options page); `highlight-editor.js` — rules editor;
   `settings-page.js` — the Settings page: Pause all, ITAR user, ERP and cache, backup (export/import), storage, about
 

@@ -15,6 +15,8 @@ const SYNC_SECTIONS = [
 ];
 
 const CHANGELOG = [
+  ['0.5.0', 'Partner rating: your own 🔴 🟡 🟢 marks via right-click on a contact name. '
+    + 'Auto refresh: only clicks and key presses count as activity; never reloads while you write an email.'],
   ['0.4.0', 'Settings: pause all, ITAR user, ERP and cache, backup, storage usage, about. '
     + 'Highlighter: rule names, several texts per rule, per-site rules.'],
   ['0.3.0', 'Own quick text buttons with page places and arrange mode; QC Center quick verdict.'],
@@ -158,7 +160,8 @@ function backupCard(onChange) {
   });
 
   return settingsCard('Backup',
-    'Save all settings to a file, or load them from a file — yours or a colleague\'s. Pause all and ITAR user are not included.', [
+    'Save all settings to a file, or load them from a file — yours or a colleague\'s. Pause all, ITAR user '
+      + 'and your partner rating are not included (the rating has its own Export in SF queue → Partner rating).', [
       el('div', { className: 'script-actions' }, [
         settingsButton('Export…', exportSettings),
         settingsButton(inTab ? 'Import…' : 'Import… (opens in a tab)', () => (inTab ? fileInput.click() : chrome.runtime.openOptionsPage())),
@@ -190,7 +193,7 @@ function storageCard() {
     const local = await chrome.storage.local.getBytesInUse(null);
     lines.replaceChildren(
       ...sections.map(([name, bytes]) => el('li', {}, [el('span', { textContent: name }), el('span', { textContent: kb(bytes) })])),
-      el('li', {}, [el('span', { textContent: 'ERP cache (this computer only)' }), el('span', { textContent: kb(local) })]),
+      el('li', {}, [el('span', { textContent: 'ERP cache and partner rating (this computer only)' }), el('span', { textContent: kb(local) })]),
     );
   })().catch((e) => showMessage(e.message, true));
 
@@ -203,10 +206,27 @@ function storageCard() {
 }
 
 // ---------------- About ----------------
+const ABOUT_TEXT = 'Helper tools for the Xometry VQC team in Salesforce and QC Center. '
+  + 'Pick a site on the left to see its scripts; each one can be turned on or off.';
+
+// Короткие подсказки: то, что не видно из интерфейса
+const QUICK_TIPS = [
+  ['ERP sidebar', 'stay logged in to ERP in this browser, or the cards stay empty.'],
+  ['Partner rating', 'right-click a contact name → Partner rating. Kept only on this computer: export it now and then.'],
+  ['Text highlighter', 'several texts per rule, comma-separated; the upper rule wins on overlap.'],
+  ['Case quick text', 'Arrange on page lets you drag buttons to other places on a Case.'],
+  ['Auto refresh', 'waits after your clicks and key presses; never reloads while a field or an email has text.'],
+  ['After an update', 'reload open Salesforce and QC Center tabs.'],
+];
+
 function aboutCard() {
   const version = chrome.runtime.getManifest().version;
-  return settingsCard('About', `Xometry Tools v${version} · © 2026 by Artem Kolchyk. All rights reserved`, [
+  return settingsCard('About', ABOUT_TEXT, [
+    el('p', { className: 'about-sub', textContent: 'Quick tips' }),
+    el('ul', { className: 'changelog' }, QUICK_TIPS.map(([name, text]) => el('li', {}, [el('b', { textContent: name }), ` — ${text}`]))),
+    el('p', { className: 'about-sub', textContent: 'What\'s new' }),
     el('ul', { className: 'changelog' }, CHANGELOG.map(([v, text]) => el('li', {}, [el('b', { textContent: `v${v}` }), ` — ${text}`]))),
+    el('p', { className: 'muted', textContent: `Xometry Tools v${version} · © 2026 by Artem Kolchyk. All rights reserved` }),
     el('div', { className: 'script-actions' }, [
       settingsButton('GitHub repository', () => chrome.tabs.create({ url: GITHUB_URL })),
     ]),

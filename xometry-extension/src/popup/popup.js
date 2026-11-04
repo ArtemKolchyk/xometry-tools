@@ -118,6 +118,7 @@ function renderScripts() {
     if (script.editor === 'highlight-rules') card.append(renderHighlightEditor());
     if (script.editor === 'auto-refresh') card.append(renderAutoRefreshEditor(script.id));
     if (script.editor === 'quick-text') card.append(renderQuickTextEditor());
+    if (script.editor === 'partner-rating') card.append(renderPartnerRatingEditor());
 
     if (script.actions && script.actions.length) {
       const actions = el('div', { className: 'script-actions' });

@@ -46,6 +46,42 @@ async function erpGet(url) {
   catch (e) { throw new Error('ERP did not return JSON'); }
 }
 
+// ---------------- Partner rating: пункт контекстного меню ----------------
+// Меню переживает перезапуск браузера, поэтому создаётся при установке/обновлении расширения.
+// Что именно кликнули (ссылка, её текст), знает только страница — отправляем туда XT_RATE.
+const RATE_MENU = [
+  { id: 'red', title: '🔴 Red' },
+  { id: 'yellow', title: '🟡 Yellow' },
+  { id: 'green', title: '🟢 Green' },
+  { id: 'remove', title: 'Remove rating' },
+];
+const RATE_PREFIX = 'xt-rate:';
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    const common = { contexts: ['link', 'selection'], documentUrlPatterns: ['https://*.lightning.force.com/*'] };
+    chrome.contextMenus.create({ ...common, id: 'xt-rate', title: 'Partner rating' });
+    RATE_MENU.forEach((item, i) => {
+      if (item.id === 'remove') {
+        chrome.contextMenus.create({ ...common, id: `xt-rate-sep${i}`, parentId: 'xt-rate', type: 'separator' });
+      }
+      chrome.contextMenus.create({ ...common, id: RATE_PREFIX + item.id, parentId: 'xt-rate', title: item.title });
+    });
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (!tab || !String(info.menuItemId).startsWith(RATE_PREFIX)) return;
+  chrome.tabs.sendMessage(tab.id, {
+    type: 'XT_RATE',
+    rating: String(info.menuItemId).slice(RATE_PREFIX.length),
+    linkUrl: info.linkUrl || '',
+    selectionText: info.selectionText || '',
+  }, { frameId: info.frameId || 0 }).catch(() => {
+    // На вкладке нет content script (открыта до установки расширения) — тихо, страницу надо перезагрузить
+  });
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.url !== 'string') return false;
 

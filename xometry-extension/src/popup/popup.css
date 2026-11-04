@@ -162,6 +162,7 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
 .usage-lines li { display: flex; justify-content: space-between; gap: 12px; }
 .changelog { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
 .changelog b { color: var(--text); font-weight: 600; }
+.about-sub { margin: 10px 0 0; font-size: 12px; font-weight: 600; }
 
 /* Редактор правил подсветки */
 .hl-editor { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
@@ -202,6 +203,34 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
 .hl-custom label { display: flex; align-items: center; gap: 4px; }
 .hl-custom input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
 .hl-more { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--accent); cursor: pointer; }
+
+/* Редактор Partner rating */
+.pr-editor { align-items: stretch; }
+.pr-search { flex: none; }
+.pr-summary { min-height: 0; }
+.pr-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.pr-list > .muted { margin: 0; }
+.pr-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px; border: 1px solid var(--border); border-left-width: 4px; border-radius: 6px; background: var(--bg);
+}
+.pr-row[data-rating="red"] { border-left-color: #ba0517; }
+.pr-row[data-rating="yellow"] { border-left-color: #dd7a01; }
+.pr-row[data-rating="green"] { border-left-color: #2e844a; }
+.pr-dots { display: flex; gap: 3px; flex: none; }
+.pr-dot {
+  width: 16px; height: 16px; padding: 0; border: 2px solid transparent; border-radius: 50%;
+  cursor: pointer; opacity: .3;
+}
+.pr-dot[aria-pressed="true"] { opacity: 1; border-color: var(--text); }
+.pr-dot:hover { opacity: 1; }
+.pr-red { background: #ba0517; }
+.pr-yellow { background: #f4bc25; }
+.pr-green { background: #2e844a; }
+.pr-name { font-weight: 600; }
+.pr-kind { flex: none; font-size: 11px; color: var(--muted); }
+.pr-note { flex: none; margin-left: 60px; }
+.pr-add { display: flex; gap: 6px; }
 
 /* Настройки автообновления */
 .ar-editor { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 12px; }
