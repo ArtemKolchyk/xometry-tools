@@ -204,19 +204,43 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
 .hl-custom input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
 .hl-more { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--accent); cursor: pointer; }
 
+/* Списки Partners / Customers */
+.wl-editor { align-items: stretch; }
+.wl-dot {
+  width: 14px; height: 14px; flex: none; padding: 0; margin: 0 2px;
+  border: 0; border-radius: 50%; cursor: pointer;
+}
+.wl-note { flex: none; margin-left: 22px; }
+.site.divided-top { margin-top: 6px; position: relative; }
+.site.divided-top::before {
+  content: ""; position: absolute; left: 12px; right: 12px; top: -4px; border-top: 1px solid var(--border);
+}
+
 /* Редактор Partner rating */
+/* popup: кнопки-фильтры, поиск, строки по одной линии; клик раскрывает строку */
 .pr-editor { align-items: stretch; }
 .pr-search { flex: none; }
-.pr-summary { min-height: 0; }
-.pr-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
-.pr-list > .muted { margin: 0; }
-.pr-row {
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 6px; border: 1px solid var(--border); border-left-width: 4px; border-radius: 6px; background: var(--bg);
+.pr-caption { margin-top: 2px; }
+.pr-caption:empty { display: none; }
+.pr-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pr-chip {
+  height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
 }
-.pr-row[data-rating="red"] { border-left-color: #ba0517; }
-.pr-row[data-rating="yellow"] { border-left-color: #dd7a01; }
-.pr-row[data-rating="green"] { border-left-color: #2e844a; }
+.pr-chip:hover { border-color: var(--accent); }
+.pr-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.pr-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.pr-list > .muted { margin: 6px 0 0; }
+.pr-row { border-bottom: 1px solid var(--border); cursor: pointer; }
+.pr-row:hover, .pr-row.open { background: var(--panel); }
+.pr-line { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; }
+.pr-mark { width: 10px; height: 10px; flex: none; border-radius: 50%; }
+.pr-line-name { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pr-line-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.pr-details { display: flex; flex-direction: column; gap: 4px; padding: 0 6px 8px 24px; cursor: default; }
+.pr-details > .hl-text { flex: none; }
+.pr-details-foot { display: flex; align-items: center; gap: 6px; }
+.pr-remove { margin-left: auto; color: var(--bad); }
 .pr-dots { display: flex; gap: 3px; flex: none; }
 .pr-dot {
   width: 16px; height: 16px; padding: 0; border: 2px solid transparent; border-radius: 50%;
@@ -229,8 +253,40 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
 .pr-green { background: #2e844a; }
 .pr-name { font-weight: 600; }
 .pr-kind { flex: none; font-size: 11px; color: var(--muted); }
-.pr-note { flex: none; margin-left: 60px; }
 .pr-add { display: flex; gap: 6px; }
+
+/* Страница Partner rating (partner-rating.html): весь список таблицей */
+.pr-page { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+.pr-page-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 16px; }
+.pr-page-head h1 { margin: 0; font-size: 18px; }
+.pr-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
+.pr-toolbar .hl-text { flex: 1 1 240px; max-width: 360px; }
+.pr-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.pr-table th {
+  padding: 6px 8px; border-bottom: 2px solid var(--border); text-align: left;
+  font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; user-select: none;
+}
+.pr-table th[data-sort] { cursor: pointer; }
+.pr-table th[data-sort]:hover, .pr-table th.sorted { color: var(--text); }
+.pr-table th.sorted::after { content: " " attr(data-dir); }
+.pr-table td { padding: 3px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.pr-table tr:hover td { background: var(--panel); }
+.pr-table td .hl-text { width: 100%; border-color: transparent; background: transparent; }
+.pr-table td .hl-text:hover { border-color: var(--border); }
+.pr-table td .hl-text:focus { border-color: var(--accent); background: var(--bg); }
+.pr-table tr[data-rating="red"] td:first-child { box-shadow: inset 4px 0 #ba0517; }
+.pr-table tr[data-rating="yellow"] td:first-child { box-shadow: inset 4px 0 #dd7a01; }
+.pr-table tr[data-rating="green"] td:first-child { box-shadow: inset 4px 0 #2e844a; }
+.pr-col-rating { width: 84px; padding-left: 12px !important; }
+.pr-col-kind { width: 64px; }
+.pr-col-date { width: 110px; white-space: nowrap; }
+.pr-col-del { width: 36px; }
+.pr-page-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 14px; }
+.pr-page-foot .pr-add { flex: 1 1 320px; max-width: 480px; }
+.pr-page-foot .script-actions { margin-top: 0; }
+@media (max-width: 640px) {
+  .pr-col-kind, .pr-table td.pr-col-kind, .pr-col-date, .pr-table td.pr-col-date { display: none; }
+}
 
 /* Настройки автообновления */
 .ar-editor { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 12px; }
@@ -293,3 +349,9 @@ body.in-tab .app { max-height: none; margin: 24px auto; border: 1px solid var(--
   font-size: 12px;
 }
 #message.error { color: var(--bad); }
+
+.badge.admin { background: var(--accent); color: #fff; }
+.admin-password {
+  width: 140px; padding: 1px 6px; font: inherit;
+  border: 1px solid var(--border); border-radius: 4px; background: transparent; color: inherit;
+}

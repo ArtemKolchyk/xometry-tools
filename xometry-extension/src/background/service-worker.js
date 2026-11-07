@@ -46,6 +46,64 @@ async function erpGet(url) {
   catch (e) { throw new Error('ERP did not return JSON'); }
 }
 
+// ---------------- Salesforce API: история кейсов (Case timeline, админский скрипт) ----------------
+// С домена lightning.force.com API по cookies не работает, поэтому берём сессию (cookie sid) с
+// <org>.my.salesforce.com и шлём её как Bearer. Нужны опциональные разрешения cookies и
+// *.my.salesforce.com: без них chrome.cookies нет и запрос сразу падает с понятной ошибкой.
+const SF_LIGHTNING_HOST_RE = /^([a-z0-9-]+(?:\.sandbox)?)\.lightning\.force\.com$/i;
+const SF_CASE_ID_RE = /^500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
+const SF_API_VERSION = 'v60.0';
+const SF_MAX_CASES = 200;
+
+async function sfCaseHistory(pageUrl, caseIds) {
+  const m = SF_LIGHTNING_HOST_RE.exec(new URL(pageUrl).hostname);
+  if (!m) throw new Error('Not a Salesforce Lightning page');
+  const ids = (Array.isArray(caseIds) ? caseIds : []).filter((id) => SF_CASE_ID_RE.test(id)).slice(0, SF_MAX_CASES);
+  if (!ids.length) return [];
+
+  const apiOrigin = `https://${m[1]}.my.salesforce.com`;
+  const noAccess = 'No Salesforce API access: grant it in the popup (SF queue → Case timeline)';
+  if (!chrome.cookies) throw new Error(noAccess);
+  const sid = await chrome.cookies.get({ url: apiOrigin, name: 'sid' }).catch(() => null);
+  if (!sid) throw new Error(`${noAccess}, or log in to Salesforce again`);
+
+  const soql = 'SELECT CaseId, Field, NewValue, CreatedDate, CreatedBy.Name FROM CaseHistory '
+    + `WHERE CaseId IN (${ids.map((id) => `'${id}'`).join(',')}) AND Field IN ('Owner', 'ownerAssignment', 'Status') `
+    + 'ORDER BY CreatedDate ASC';
+  let url = `${apiOrigin}/services/data/${SF_API_VERSION}/query?q=${encodeURIComponent(soql)}`;
+  const records = [];
+  while (url) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    let r;
+    try {
+      r = await fetch(url, {
+        headers: { Authorization: `Bearer ${sid.value}`, Accept: 'application/json' },
+        signal: controller.signal,
+      });
+    } catch (e) {
+      throw new Error(e.name === 'AbortError' ? 'Salesforce API timed out' : 'Network error');
+    } finally {
+      clearTimeout(timer);
+    }
+    if (r.status === 401) throw new Error('Salesforce session expired: reload the Salesforce tab');
+    if (!r.ok) {
+      const body = await r.json().catch(() => null);
+      throw new Error(`Salesforce API: ${(Array.isArray(body) && body[0] && body[0].message) || r.status}`);
+    }
+    const data = await r.json();
+    data.records.forEach((rec) => records.push({
+      caseId: rec.CaseId,
+      field: rec.Field,
+      newValue: rec.NewValue == null ? '' : String(rec.NewValue),
+      time: rec.CreatedDate,
+      by: (rec.CreatedBy && rec.CreatedBy.Name) || '',
+    }));
+    url = data.nextRecordsUrl ? apiOrigin + data.nextRecordsUrl : null;
+  }
+  return records;
+}
+
 // ---------------- Partner rating: пункт контекстного меню ----------------
 // Меню переживает перезапуск браузера, поэтому создаётся при установке/обновлении расширения.
 // Что именно кликнули (ссылка, её текст), знает только страница — отправляем туда XT_RATE.
@@ -83,6 +141,15 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Хост берём из вкладки-отправителя, а не из сообщения
+  if (msg && msg.type === 'SF_CASE_HISTORY' && sender.url) {
+    sfCaseHistory(sender.url, msg.caseIds).then(
+      (data) => sendResponse({ ok: true, data }),
+      (err) => sendResponse({ ok: false, error: err.message }),
+    );
+    return true;
+  }
+
   if (!msg || typeof msg.url !== 'string') return false;
 
   if (msg.type === 'ERP_GET') {

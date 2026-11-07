@@ -91,12 +91,26 @@
     return entry && Date.now() - entry.time < CACHE_TTL_MIN * 60 * 1000;
   }
   function clearCache() {
-    return Promise.all([cache.clear(), partnerInfo.clear(), customerInfo.clear()]);
+    histState.clear();
+    return Promise.all([cache.clear(), partnerInfo.clear(), customerInfo.clear(), histCache.clear()]);
   }
 
   // ---------------- Доп. данные для панели More (партнёр, клиент) ----------------
   // Запрашиваются только при открытии панели, отдельно от очереди джобов.
   // fetcher(key) резолвится объектом с данными; он кладётся в кеш вместе с time.
+  // Клиенты грузятся для всех карточек, когда список Customers не пуст, поэтому запросы идут по очереди.
+  const EXTRA_MAX_CONCURRENT = 2;
+  const extraQueue = [];
+  let extraActive = 0;
+  function pumpExtra() {
+    while (extraActive < EXTRA_MAX_CONCURRENT && extraQueue.length) {
+      const { fn, resolve, reject } = extraQueue.shift();
+      extraActive++;
+      fn().then(resolve, reject).finally(() => { extraActive--; pumpExtra(); });
+    }
+  }
+  const limited = (fn) => new Promise((resolve, reject) => { extraQueue.push({ fn, resolve, reject }); pumpExtra(); });
+
   function lazyInfo(prefix, fetcher) {
     const store = XT.createCache(prefix);
     const state = new Map();   // key -> { status:'loading'|'error', message }
@@ -107,7 +121,7 @@
         const entry = store.get(key);
         if (!force && (state.has(key) || (entry && Date.now() - entry.time < EXTRA_TTL_MIN * 60 * 1000))) return;
         state.set(key, { status: 'loading' });
-        fetcher(key)
+        limited(() => fetcher(key))
           .then((data) => { store.set(key, { time: Date.now(), ...data }); state.delete(key); })
           .catch((err) => state.set(key, { status: 'error', message: err.message }))
           .finally(renderAll);
@@ -147,6 +161,161 @@
       email: u.email_address || '',
     };
   });
+
+  // ---------------- Case timeline (админский скрипт sf-case-timeline) ----------------
+  // Свой переключатель, но рисуется на карточках этого скрипта. Ключ строки таблицы = ID кейса.
+  const TIMELINE_ID = 'sf-case-timeline';
+  const TIMELINE_EXTRA_WIDTH = 50;   // карточка шире, чтобы поместилась метка времени
+  const HIST_TTL_OPEN_MIN = 5;       // кейс ещё в работе: перечитываем чаще
+  const HIST_TTL_DONE_MIN = 60;      // уже ушёл в Pending
+  const HIST_BATCH = 100;            // кейсов в одном запросе к Salesforce API
+  // Норма на первый цикл: 7 мин на деталь + 3 мин на письмо, округление вверх до 10 мин
+  const NORM_MIN_PER_PART = 7;
+  const NORM_MIN_EMAIL = 3;
+  const NORM_ROUND_MIN = 10;
+  const OVER_NORM_COLOR = '#ba0517';
+  const normMs = (parts) =>
+    Math.ceil((Math.max(1, parts) * NORM_MIN_PER_PART + NORM_MIN_EMAIL) / NORM_ROUND_MIN) * NORM_ROUND_MIN * 60000;
+  const histCache = XT.createCache(XT.registry.getScript(TIMELINE_ID).cachePrefix);
+  const histState = new Map();       // caseId -> { status: 'loading'|'error', message }
+  let timelineOn = false;
+  let warnedKeys = false;
+
+  // ID кейса строки: ключ строки, data-recordid или ссылка на запись (/lightning/r/Case/500…/view)
+  const CASE_ID_IN_TEXT_RE = /\b(500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)\b/;
+  function findCaseId(tr, key) {
+    if (XT.caseHistory.isCaseId(key)) return key;
+    for (const node of deepQueryAll('[data-recordid], a[href]', tr)) {
+      const value = node.getAttribute('data-recordid') || node.getAttribute('href') || '';
+      const m = value.match(CASE_ID_IN_TEXT_RE);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  function histFresh(entry) {
+    return entry && Date.now() - entry.time < (entry.pending ? HIST_TTL_DONE_MIN : HIST_TTL_OPEN_MIN) * 60000;
+  }
+
+  function fetchHistory(ids) {
+    for (let i = 0; i < ids.length; i += HIST_BATCH) {
+      const batch = ids.slice(i, i + HIST_BATCH);
+      batch.forEach((id) => histState.set(id, { status: 'loading' }));
+      XT.caseHistory.fetch(batch)
+        .then((byCase) => batch.forEach((id) => { histCache.set(id, { time: Date.now(), ...byCase[id] }); histState.delete(id); }))
+        .catch((err) => batch.forEach((id) => histState.set(id, { status: 'error', message: err.message })))
+        .finally(renderAll);
+    }
+  }
+
+  // Все видимые кейсы с устаревшей историей — одним запросом
+  function loadHistory() {
+    if (!timelineOn) return;
+    const shown = rows.filter(showsCard);
+    if (!warnedKeys && shown.length && !shown.some((r) => r.caseId)) {
+      console.warn('[Case timeline] no Case ID found in table rows. Row sample:', shown[0].tr.outerHTML.slice(0, 2000));
+      warnedKeys = true;
+    }
+    const ids = [...new Set(shown.map((r) => r.caseId).filter(Boolean))]
+      .filter((id) => !histState.has(id) && !histFresh(histCache.get(id)));
+    if (ids.length) fetchHistory(ids);
+  }
+
+  function refreshHistory(ids) {
+    if (!timelineOn) return;
+    ids.forEach((id) => histState.delete(id));
+    fetchHistory(ids.filter(XT.caseHistory.isCaseId));
+  }
+
+  // Метка на карточке: ⏱ 3m (ушёл в Pending), ⏳ 45m (ещё в работе)
+  function timelineChip(caseId, partCount) {
+    if (!timelineOn) return '';
+    if (!caseId) return '<span style="margin-left:auto" title="Case timeline: no Case ID found in this row">⏱?</span>';
+    const st = histState.get(caseId);
+    const h = histCache.get(caseId);
+    if (st && st.status === 'error') {
+      return `<span style="margin-left:auto" title="Case timeline: ${escapeHtml(st.message)}\nShift+click: retry">⏱⚠</span>`;
+    }
+    if (!h) return '<span style="margin-left:auto;opacity:.6">⏱…</span>';
+    if (!h.taken) return '<span style="margin-left:auto;opacity:.6" title="Not taken by anyone yet">⏱ —</span>';
+    const { formatDuration: dur, formatTime: at } = XT.caseHistory;
+    const takenLine = `Taken: ${at(h.taken.time)}${h.taken.owner ? ` · ${h.taken.owner}` : ''}`;
+    const norm = normMs(partCount);
+    const normLine = `Norm: ${dur(norm)} (${partCount} part${partCount === 1 ? '' : 's'} × ${NORM_MIN_PER_PART}m + ${NORM_MIN_EMAIL}m, rounded up)`;
+    const spent = (h.pending ? h.pending.time : Date.now()) - h.taken.time;
+    const over = spent > norm;
+    const style = `margin-left:auto${over ? `;color:${OVER_NORM_COLOR};font-weight:700` : ''}`;
+    if (h.pending) {
+      const title = `${takenLine}\nPending: ${at(h.pending.time)} · ${h.pending.by}\nHandled in ${dur(spent)}\n${normLine}`;
+      return `<span style="${style}" title="${escapeHtml(title)}">⏱ <b>${dur(spent)}</b></span>`;
+    }
+    const title = `${takenLine}\nNot in Pending yet: in work ${dur(spent)}\n${normLine}`;
+    return `<span style="${style}" title="${escapeHtml(title)}">⏳ ${dur(spent)}</span>`;
+  }
+
+  // Блок в панели More
+  function timelineDetails(caseId) {
+    if (!timelineOn || !caseId) return '';
+    const st = histState.get(caseId);
+    const h = histCache.get(caseId);
+    const { formatDuration: dur, formatTime: at } = XT.caseHistory;
+    let body;
+    if (st && st.status === 'error') body = `⚠ ${escapeHtml(st.message)}`;
+    else if (!h) body = 'Loading…';
+    else if (!h.taken) body = 'Not taken by anyone yet';
+    else {
+      const cell = (label, value) => `<div><span style="color:#706e6b">${label}</span> <b>${escapeHtml(value)}</b></div>`;
+      body = cell('Taken', `${at(h.taken.time)}${h.taken.owner ? ` · ${h.taken.owner}` : ''}`)
+        + (h.pending
+          ? cell('Pending', `${at(h.pending.time)} · ${h.pending.by}`) + cell('Handled in', dur(h.pending.time - h.taken.time))
+          : cell('In work', `${dur(Date.now() - h.taken.time)}, not in Pending yet`));
+    }
+    return `
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e5e5e5;white-space:normal">
+        <div style="color:#706e6b;width:100%">Case timeline</div>${body}
+      </div>`;
+  }
+
+  // ---------------- Partners / Customers (списки пользователя, src/common/watchlist.js) ----------------
+  let watch = { partners: [], customers: [] };
+
+  // Совпадения карточки: [{ kind, entry }], партнёры первыми. Клиент подгружается, только если список не пуст.
+  function watchMatches(summary, jobId) {
+    const found = XT.watchlist.match(watch.partners, [summary.partner])
+      .map((entry) => ({ kind: 'partners', entry }));
+    if (watch.customers.length) {
+      customerInfo.load(jobId);
+      const cu = customerInfo.get(jobId);
+      if (!cu.loading && !cu.error) {
+        XT.watchlist.match(watch.customers, [cu.company, cu.contact, cu.email])
+          .forEach((entry) => found.push({ kind: 'customers', entry }));
+      }
+    }
+    return found;
+  }
+
+  const watchLine = ({ kind, entry }) =>
+    `${XT.watchlist.KINDS[kind].one}: ${entry.text}${entry.note ? ` — ${entry.note}` : ''}`;
+
+  // Треугольник с «!» цвета первой записи
+  function watchSign(matches) {
+    const color = XT.watchlist.colorValue(matches[0].entry.color);
+    return `<span style="display:inline-flex;flex:none" title="${escapeHtml(matches.map(watchLine).join('\n'))}">`
+      + '<svg width="16" height="14" viewBox="0 0 16 14" aria-hidden="true">'
+      + `<path d="M8 1 L15.2 13.2 H0.8 Z" fill="${color}" stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/>`
+      + '<rect x="7.15" y="4.6" width="1.7" height="4.9" rx=".85" fill="#fff"/><circle cx="8" cy="11.2" r="1" fill="#fff"/>'
+      + '</svg></span>';
+  }
+
+  // Блок вверху панели More
+  function watchDetails(matches) {
+    if (!matches.length) return '';
+    return matches.map((m) => `
+      <div style="margin-bottom:6px;padding:4px 8px;border-left:3px solid ${XT.watchlist.colorValue(m.entry.color)};background:#fafafa;white-space:normal">
+        <span style="color:#706e6b">${XT.watchlist.KINDS[m.kind].one}:</span> <b>${escapeHtml(m.entry.text)}</b>
+        ${m.entry.note ? `<div style="margin-top:2px">${escapeHtml(m.entry.note)}</div>` : ''}
+      </div>`).join('') + '<div style="margin-bottom:8px;border-bottom:1px solid #e5e5e5"></div>';
+  }
 
   // Текст значения: данные, «Loading…» или ошибка
   function infoText(info, value) {
@@ -282,8 +451,10 @@
         }
 
         const match = deepText(subjectCell).match(JOB_ID_RE);
+        const key = tr.getAttribute('data-row-key-value') || deepText(subjectCell);
         found.push({
-          key: tr.getAttribute('data-row-key-value') || deepText(subjectCell),
+          key,
+          caseId: timelineOn ? findCaseId(tr, key) : null,
           tr,
           table,
           scroller,
@@ -295,6 +466,7 @@
 
     rows = found;
     rows.filter(showsCard).forEach((r) => enqueue(r.jobId));
+    loadHistory();
     renderAll();
   }
 
@@ -314,7 +486,7 @@
   const expanded = new Set();   // row keys с открытыми деталями
 
   function escapeHtml(v) {
-    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function getCard(key) {
@@ -367,7 +539,7 @@
   }
 
   // Содержимое раскрывающейся панели. Новые блоки информации добавлять сюда.
-  function renderDetails(s, jobId) {
+  function renderDetails(s, jobId, caseId, matches) {
     const rowsHtml = s.parts.map((p) => `
       <tr>
         <td style="padding:2px 12px 2px 0;font-weight:600">${escapeHtml(p.partId)}</td>
@@ -394,7 +566,7 @@
         <div style="margin-top:2px;overflow-wrap:anywhere">${cu.email
           ? `<a href="mailto:${encodeURIComponent(cu.email)}">${escapeHtml(cu.email)}</a>` : '—'}</div>`}
       </div>`;
-    return `
+    return watchDetails(matches) + timelineDetails(caseId) + `
       <div style="display:flex;gap:12px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e5e5e5;white-space:normal">
         ${partnerHtml}${customerHtml}
       </div>` + `
@@ -442,6 +614,7 @@
       const n = summary.partCount;
       html = `<b>${summary.allStd ? 'Standard' : 'Non-std'}</b><span>${n} part ID${n === 1 ? '' : 's'}</span>`;
       if (st && st.status === 'loading') html += '<span style="opacity:.6">↻</span>';
+      html += timelineChip(row.caseId, summary.partCount);
       const ageMin = Math.round((Date.now() - entry.time) / 60000);
       title = [summary.partner, summary.jobStatus && `Job status: ${summary.jobStatus}`]
         .filter(Boolean).join('\n')
@@ -450,6 +623,8 @@
       html = 'Loading from ERP…';
       title = row.jobId;
     }
+    const matches = summary ? watchMatches(summary, row.jobId) : [];
+    if (matches.length) html = watchSign(matches) + html;
     if (row.itar) html = '<b style="padding:0 4px;border:1px solid currentColor;border-radius:3px">ITAR</b>' + html;
 
     Object.assign(card.style, { background: color.bg, borderLeftColor: color.border, color: color.text });
@@ -462,6 +637,7 @@
         // Упавшие запросы по партнёру и клиенту тоже повторятся при следующем открытии More
         if (summary && summary.vendor) partnerInfo.forget(summary.vendor);
         customerInfo.forget(row.jobId);
+        if (row.caseId) refreshHistory([row.caseId]);
         renderAll();
       }
       else XT.openTab(XT.erp.jobPageUrl(row.jobId)).catch((err) => console.warn('[ERP sidebar]', err.message));
@@ -474,7 +650,7 @@
     if (isOpen) {
       partnerInfo.load(summary.vendor);
       customerInfo.load(row.jobId);
-      setHtml(details, renderDetails(summary, row.jobId));
+      setHtml(details, renderDetails(summary, row.jobId, row.caseId, matches));
     }
   }
 
@@ -511,7 +687,7 @@
         const sr = row.scroller.getBoundingClientRect();
         if (sr.right < innerWidth - 120) left = Math.max(left, sr.right + 8);
       }
-      const width = Math.min(CARD_WIDTH, innerWidth - left - 12);
+      const width = Math.min(CARD_WIDTH + (timelineOn ? TIMELINE_EXTRA_WIDTH : 0), innerWidth - left - 12);
 
       if (!r.height || r.top < clipTop - 2 || r.bottom > clipBottom + 2 || width < 120) {
         hide();
@@ -540,6 +716,7 @@
     if (!running) return;
     if (action === 'refresh-all') {
       rows.filter(showsCard).forEach((r) => { state.delete(r.jobId); enqueue(r.jobId, true); });
+      refreshHistory([...new Set(rows.filter(showsCard).map((r) => r.caseId).filter(Boolean))]);
     }
     if (action === 'clear-cache') clearCache().then(scanTables);
   });
@@ -578,5 +755,17 @@
   });
 
   // Ждём загрузки кеша, чтобы первый рендер не запросил заново всё, что уже есть
-  Promise.all([cache.ready, partnerInfo.ready, customerInfo.ready]).then(() => XT.settings.watch(SCRIPT_ID, (on) => (on ? start() : stop())));
+  Promise.all([cache.ready, partnerInfo.ready, customerInfo.ready, histCache.ready]).then(() => {
+    // Case timeline: при включении сбрасываем старые ошибки (например, доступ к API уже выдан)
+    XT.settings.watch(TIMELINE_ID, (on) => {
+      timelineOn = on;
+      histState.clear();
+      if (running) scanTables();
+    });
+    XT.watchlist.watch((lists) => {
+      watch = lists;
+      if (running) renderAll();
+    });
+    XT.settings.watch(SCRIPT_ID, (on) => (on ? start() : stop()));
+  });
 })();

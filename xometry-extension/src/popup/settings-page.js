@@ -12,9 +12,12 @@ const SYNC_SECTIONS = [
   { id: 'options', name: 'Script options', match: (k) => k.startsWith('xt:options:') },
   { id: 'highlight', name: 'Highlight rules', match: (k) => k === 'xt:highlightRules' },
   { id: 'quickText', name: 'Quick text buttons', match: (k) => k.startsWith('xt:quickText:') },
+  { id: 'watchlist', name: 'Partners and customers', match: (k) => k.startsWith('xt:watchlist:') },
 ];
 
 const CHANGELOG = [
+  ['0.5.1', 'Partner rating: compact popup (color filters, search, recent), full list on its own page '
+    + '(Manage all): sortable table, inline edit, import.'],
   ['0.5.0', 'Partner rating: your own 🔴 🟡 🟢 marks via right-click on a contact name. '
     + 'Auto refresh: only clicks and key presses count as activity; never reloads while you write an email.'],
   ['0.4.0', 'Settings: pause all, ITAR user, ERP and cache, backup, storage usage, about. '
@@ -70,6 +73,7 @@ function erpCard() {
     await XT.storage.clearByPrefix(cachePrefix);
     await XT.storage.clearByPrefix(XT.registry.getScript('sf-erp-sidebar').partnerCachePrefix);
     await XT.storage.clearByPrefix(XT.registry.getScript('sf-erp-sidebar').customerCachePrefix);
+    await XT.storage.clearByPrefix(XT.registry.getScript('sf-case-timeline').cachePrefix);
     const sfSite = XT.registry.sites.find((s) => s.id === 'sf-queue');
     await broadcast(sfSite, { type: 'XT_ACTION', scriptId: 'sf-erp-sidebar', action: 'clear-cache' });
     showMessage('ERP cache cleared');
@@ -161,7 +165,7 @@ function backupCard(onChange) {
 
   return settingsCard('Backup',
     'Save all settings to a file, or load them from a file — yours or a colleague\'s. Pause all, ITAR user '
-      + 'and your partner rating are not included (the rating has its own Export in SF queue → Partner rating).', [
+      + 'and your partner rating are not included (the rating has its own Export: SF queue → Partner rating).', [
       el('div', { className: 'script-actions' }, [
         settingsButton('Export…', exportSettings),
         settingsButton(inTab ? 'Import…' : 'Import… (opens in a tab)', () => (inTab ? fileInput.click() : chrome.runtime.openOptionsPage())),
@@ -240,6 +244,9 @@ function renderSettingsPage(prefs, onChange) {
       'Temporarily turns off every script on all sites. Your per-script switches are kept.', onChange),
     prefCard(prefs, 'itarUser', 'ITAR user',
       'Off: ERP sidebar skips ITAR cases (Primary ITAR Field checked). Turn on only if you are authorized to work with ITAR data.', onChange),
+    // Видна только в админском режиме; после выключения карточка пропадает
+    ...(prefs.adminMode ? [prefCard(prefs, 'adminMode', 'Admin mode',
+      'Shows and runs scripts marked admin. Turn off to see the extension as a regular user does.', onChange)] : []),
     erpCard(),
     backupCard(onChange),
     storageCard(),

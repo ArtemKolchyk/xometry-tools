@@ -40,15 +40,18 @@
       boxSizing: 'border-box',
       height: '32px',
       padding: '0 12px',
-      border: '1px solid #c9c9c9',
+      border: '1px solid #0176d3',
       borderRadius: '16px 4px 4px 16px',
-      background: '#fff',
-      color: '#0176d3',
+      background: '#0176d3',
+      color: '#fff',
       font: '600 13px Arial, sans-serif',
       whiteSpace: 'nowrap',
       cursor: 'pointer',
       zIndex: '10',
     });
+    // Hover как у брендовых кнопок Salesforce
+    button.addEventListener('mouseenter', () => { button.style.background = '#014486'; button.style.borderColor = '#014486'; });
+    button.addEventListener('mouseleave', () => { button.style.background = '#0176d3'; button.style.borderColor = '#0176d3'; });
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       // Открываем прямо со страницы: клик пользователя разрешает window.open, background не нужен

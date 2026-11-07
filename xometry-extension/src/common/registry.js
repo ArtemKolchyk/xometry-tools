@@ -3,6 +3,8 @@
 // stub: true — заглушка: видна в popup, но не включается.
 // general: true — общие скрипты: работают на всех (не заглушечных) сайтах из списка.
 // settings: true — не сайт, а страница общих настроек расширения (src/popup/settings-page.js).
+// admin: true (у скрипта или у сайта целиком) — только в админском режиме (XT.prefs.adminMode):
+//   без него скрипт скрыт в popup и не запускается, даже если его переключатель включён.
 (function () {
   'use strict';
   const XT = (globalThis.XT = globalThis.XT || {});
@@ -40,6 +42,23 @@
       host: 'www.xometry.com/erp',
       matches: ['https://www.xometry.com/erp/*'],
       stub: true,
+    },
+    // page — не сайт, а страница popup (списки Partners / Customers, src/popup/watchlist-editor.js); внизу меню
+    {
+      id: 'partners',
+      name: 'Partners',
+      host: 'Marked on ERP sidebar cards',
+      page: 'watchlist',
+      kind: 'partners',
+      matches: [],
+    },
+    {
+      id: 'customers',
+      name: 'Customers',
+      host: 'Marked on ERP sidebar cards',
+      page: 'watchlist',
+      kind: 'customers',
+      matches: [],
     },
   ];
 
@@ -79,10 +98,30 @@
       ],
     },
     {
+      id: 'sf-case-timeline',
+      site: 'sf-queue',
+      name: 'Case timeline',
+      description: 'On ERP sidebar cards: when a colleague took the case (first owner change to a person), when it went '
+        + 'to Pending, and the time in between. ⏳ — still in work. Works together with the ERP sidebar.',
+      admin: true,
+      defaultEnabled: false,
+      cachePrefix: 'sfhist1:',
+      // Опциональные разрешения: запрашиваются кнопкой в popup, у обычных пользователей их нет
+      permissions: { permissions: ['cookies'], origins: ['https://*.my.salesforce.com/*'] },
+      permissionsLabel: 'Salesforce API access',
+    },
+    {
       id: 'sf-case-erp-button',
       site: 'sf-queue',
       name: 'Open case job in ERP',
       description: 'Adds an ERP button to Salesforce Case records when a job number is present.',
+    },
+    {
+      id: 'sf-case-cc-check',
+      site: 'sf-queue',
+      name: 'Additional VQC Email check',
+      description: 'On Send from a Case: if the Additional VQC Email (when it differs from Web Email) is not among '
+        + 'the recipients, asks to add it to CC or send without it.',
     },
     {
       id: 'sf-case-quick-text',
@@ -124,10 +163,18 @@
     },
   ];
 
+  const getSite = (id) => sites.find((s) => s.id === id);
+  const isAdminScript = (script) => !!(script.admin || (getSite(script.site) || {}).admin);
+
   XT.registry = {
     sites,
     scripts,
+    getSite,
     getScript: (id) => scripts.find((s) => s.id === id),
     scriptsForSite: (siteId) => scripts.filter((s) => s.site === siteId),
+    isAdminScript,
+    // Доступен ли скрипт / сайт при текущем режиме
+    scriptAvailable: (script, adminMode) => adminMode || !isAdminScript(script),
+    siteAvailable: (site, adminMode) => adminMode || !site.admin,
   };
 })();

@@ -49,6 +49,7 @@ Adds productivity tools for the Xometry VQC team to Salesforce and Xometry QC Ce
 - `storage`: `Stores the user's settings (enabled tools, highlight rules, quick-text buttons), personal partner ratings and a short-lived cache of ERP responses.`
 - `contextMenus`: `Adds a "Partner rating" item to the right-click menu on Salesforce pages so the user can mark a partner link or selected name.`
 - Host permissions (`api.xometry.com`, `www.xometry.com/api`): `The background service worker requests job, partner and customer data from Xometry ERP APIs with the user's own ERP session, to show it next to Salesforce records.`
+- Optional `cookies` + optional host `*.my.salesforce.com` (не запрашиваются при установке; только админский Case timeline, кнопкой в popup): `Optional, requested only when the user turns on Case timeline: reads the user's own Salesforce session to load case history (owner and status changes) from the Salesforce API and show it next to Salesforce records.`
 - Content scripts (`*.lightning.force.com`, `*.xometry.com/qc-center-app`): `The tools run only on Salesforce Lightning and Xometry QC Center pages, where they add buttons, a sidebar and highlights.`
 
 **Remote code:** No, I am not using remote code.

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Partner rating · Xometry Tools</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body class="pr-page-body">
+    <div class="pr-page">
+      <header class="pr-page-head">
+        <div class="brand">
+          <img src="../../icons/icon32.png" alt="" width="20" height="20" />
+          <h1>Partner rating</h1>
+        </div>
+        <span class="muted">Personal, stored only in this browser. Export now and then as a backup.</span>
+      </header>
+
+      <div class="pr-toolbar">
+        <div id="chips"></div>
+        <input id="search" type="search" class="hl-text" placeholder="Search name or note" />
+      </div>
+
+      <table class="pr-table">
+        <thead>
+          <tr>
+            <th data-sort="rating" class="pr-col-rating">Rating</th>
+            <th data-sort="name">Name</th>
+            <th data-sort="note">Note</th>
+            <th data-sort="kind" class="pr-col-kind">Match</th>
+            <th data-sort="updated" class="pr-col-date">Rated</th>
+            <th class="pr-col-del"></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="empty" class="muted" hidden></p>
+
+      <div class="pr-page-foot">
+        <div class="pr-add">
+          <input id="new-name" type="text" class="hl-text" placeholder="Add by name (matches exact plain text)" />
+          <button id="add" type="button" class="btn">+ Add</button>
+        </div>
+        <div class="script-actions">
+          <button id="export" type="button" class="btn">Export…</button>
+          <button id="import" type="button" class="btn">Import…</button>
+          <input id="file" type="file" accept=".json,application/json" hidden />
+          <span id="message" class="muted" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>
+
+    <script src="../common/registry.js"></script>
+    <script src="../common/partner-rating.js"></script>
+    <script src="partner-rating-ui.js"></script>
+    <script src="partner-rating-page.js"></script>
+  </body>
+</html>

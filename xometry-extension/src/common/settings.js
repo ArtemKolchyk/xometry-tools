@@ -10,6 +10,7 @@
   const PREF_DEFAULTS = {
     paused: false,     // Pause all: все скрипты выключены, их переключатели не трогаются
     itarUser: false,   // ERP sidebar показывает карточки и для ITAR-кейсов
+    adminMode: false,  // доступны скрипты с admin: true (см. registry.js)
   };
   const prefsWithDefaults = (saved) => ({ ...PREF_DEFAULTS, ...(saved || {}) });
 
@@ -55,18 +56,19 @@
     },
 
     // cb(enabled) вызывается сразу с текущим значением и потом при каждом изменении.
-    // Учитывает Pause all: при паузе скрипт получает false, хотя его переключатель включён.
+    // Учитывает Pause all и админский режим: скрипт получает false, хотя его переключатель включён.
     watch(scriptId, cb) {
+      const script = XT.registry.getScript(scriptId);
       let current = null;
       let all = null;
-      let paused = null;
+      let prefs = null;
       const apply = () => {
-        if (all === null || paused === null) return;
-        const on = all[scriptId] && !paused;
+        if (all === null || prefs === null) return;
+        const on = all[scriptId] && !prefs.paused && XT.registry.scriptAvailable(script, prefs.adminMode);
         if (on !== current) { current = on; cb(on); }
       };
       XT.settings.getAll().then((value) => { all = value; apply(); });
-      XT.prefs.watch((prefs) => { paused = prefs.paused; apply(); });
+      XT.prefs.watch((value) => { prefs = value; apply(); });
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area === 'sync' && changes[KEY]) { all = withDefaults(changes[KEY].newValue || {}); apply(); }
       });

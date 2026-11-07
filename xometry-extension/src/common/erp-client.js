@@ -23,6 +23,9 @@
     });
   }
 
+  // Сообщение в background с ответом { ok, data | error }; используется и другими модулями
+  XT.sendToBackground = send;
+
   XT.erp = {
     jobApiUrl: (jobId) => `https://api.xometry.com/fulfillment/admin/jobs/${jobId}`,
     jobPageUrl: (jobId) => `https://www.xometry.com/erp/jobs/${jobId}`,

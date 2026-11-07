@@ -10,6 +10,13 @@ in the popup and can be turned on/off individually.
 3. Reload already open Salesforce tabs
 4. Be logged in to ERP (www.xometry.com/erp) in the same browser profile
 
+## Publish to Chrome Web Store
+
+1. Bump `version` in `manifest.json` (and `package.json`)
+2. `powershell -ExecutionPolicy Bypass -File pack.ps1` → `dist/xometry-tools-<version>.zip`
+3. Upload the zip in the Developer Dashboard. Listing texts and permission justifications: `STORE.md`,
+   privacy policy: `PRIVACY.md`
+
 ## Structure
 
 - `manifest.json`
@@ -27,6 +34,10 @@ in the popup and can be turned on/off individually.
 - `src/background/service-worker.js` — ERP requests with `credentials: 'include'`, opening tabs, ERP login status
 - `src/content/salesforce-erp-sidebar.js` — port of `userscripts/salesforce-erp-sidebar.user.js`
 - `src/content/salesforce-case-erp-button.js` — opens the job from an open Salesforce Case in ERP
+- `src/content/salesforce-case-cc-check.js` — holds Send in a Case email when the case's Additional VQC Email
+  (if it differs from Web Email) is not among the recipients; dialog: add to CC & send / send without it / cancel.
+  Field values are read from the visible Details tab and remembered per case. If the address does not become a CC pill,
+  nothing is sent: it is copied to the clipboard for a manual paste
 - `src/content/salesforce-case-quick-text.js` — user-defined buttons on a Case that insert a text at the cursor.
   Each button sits in a slot tied to a page landmark (`MOUNTS`); «Arrange on page» lets you drag buttons between slots
   - `src/common/quick-text-buttons.js` — the buttons `[{ id, label, text, bg, color }]` in `chrome.storage.sync`,
@@ -37,7 +48,12 @@ in the popup and can be turned on/off individually.
   Highlights the whole link text by Salesforce record ID, or plain text equal to the name (no substrings)
   - `src/common/partner-rating.js` — storage in `chrome.storage.local` (personal, not synced, not in the settings backup):
     `{ 'id:<15-char id>' | 'name:<lowercase name>': { name, rating, note, updated } }`
-  - `src/popup/partner-rating-editor.js` — list with search, color, name, note, delete; add by name; own export/import
+    Editors save per-key patches via `XT.partnerRating.apply` so a right-click mark made meanwhile is not overwritten
+  - `src/popup/partner-rating-editor.js` — compact popup view: color filter chips, search, recent 8 (or up to 30 matches),
+    one line per partner, click to expand and edit; «Manage all» opens the full page
+  - `src/popup/partner-rating.html` + `partner-rating-page.js` — full list as a sortable table, inline edit,
+    add by name, export/import
+  - `src/popup/partner-rating-ui.js` — shared bits: filter chips, color dots, per-key saver, export file
 - `src/content/qcc-quick-verdict.js` — QC Center: Accept All / Reject All in the Submit Verdict dialog;
   port of `userscripts/QCC - Accept or Reject.txt`
 - `src/content/text-highlighter.js` — general script: highlights text via the CSS Custom Highlight API (no DOM changes)
