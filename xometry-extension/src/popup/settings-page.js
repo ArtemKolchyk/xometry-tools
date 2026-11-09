@@ -16,6 +16,9 @@ const SYNC_SECTIONS = [
 ];
 
 const CHANGELOG = [
+  ['0.6.0', 'Partners and Customers: your own lists with notes (bottom of the menu); matching ERP sidebar cards '
+    + 'get a ▲! sign, the note shows on hover and in More. Additional VQC Email check: on Send from a Case, '
+    + 'asks to add the Additional VQC Email to CC.'],
   ['0.5.1', 'Partner rating: compact popup (color filters, search, recent), full list on its own page '
     + '(Manage all): sortable table, inline edit, import.'],
   ['0.5.0', 'Partner rating: your own 🔴 🟡 🟢 marks via right-click on a contact name. '
@@ -217,6 +220,7 @@ const ABOUT_TEXT = 'Helper tools for the Xometry VQC team in Salesforce and QC C
 const QUICK_TIPS = [
   ['ERP sidebar', 'stay logged in to ERP in this browser, or the cards stay empty.'],
   ['Partner rating', 'right-click a contact name → Partner rating. Kept only on this computer: export it now and then.'],
+  ['Partners / Customers', 'add a company with a note: its ERP sidebar cards get a ▲! sign; "Acme" also matches "ACME, Inc.".'],
   ['Text highlighter', 'several texts per rule, comma-separated; the upper rule wins on overlap.'],
   ['Case quick text', 'Arrange on page lets you drag buttons to other places on a Case.'],
   ['Auto refresh', 'waits after your clicks and key presses; never reloads while a field or an email has text.'],

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Xometry Tools",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Helper tools for the Xometry VQC team in Salesforce and QC Center: ERP cards, highlights, partner rating, quick text and more.",
   "icons": {
     "16": "icons/icon16.png",

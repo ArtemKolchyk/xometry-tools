@@ -19,6 +19,8 @@ Salesforce:
 • Open in ERP — opens the job of the current Case in ERP
 • Quick text — your own buttons that insert prepared text into a Case
 • Partner rating — personal red / yellow / green marks for partners (right-click menu)
+• Partners and Customers — your own lists with notes; matching ERP cards get a warning sign
+• Additional VQC Email check — reminds to add the case's Additional VQC Email to CC before sending
 • Text highlighter — highlights words and phrases you choose
 • Auto refresh — reloads the page on a timer, never while you are typing
 

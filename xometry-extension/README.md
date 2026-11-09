@@ -54,6 +54,16 @@ in the popup and can be turned on/off individually.
   - `src/popup/partner-rating.html` + `partner-rating-page.js` — full list as a sortable table, inline edit,
     add by name, export/import
   - `src/popup/partner-rating-ui.js` — shared bits: filter chips, color dots, per-key saver, export file
+- Partners / Customers (popup pages at the bottom of the menu, `page: 'watchlist'` in the registry):
+  user lists `[{ text, note, color }]` in `chrome.storage.sync` (`xt:watchlist:partners|customers`, in the backup).
+  ERP sidebar cards whose partner company (or customer company / contact / email) contains an entry's text get a ▲! sign
+  - `src/common/watchlist.js` — storage and matching (case and punctuation ignored); `src/popup/watchlist-editor.js` — editor
+- Admin mode (`XT.prefs.adminMode`): scripts or sites with `admin: true` are hidden in the popup and not started.
+  Unlock: 5 clicks on the version in the popup footer + password (SHA-256 in `popup.js`); turn off in Settings
+- Case timeline (admin, `src/common/sf-case-history.js`): on ERP sidebar cards — when the case was first taken by a person,
+  when it went to Pending, time spent vs. the norm (7 min per part + 3 min, rounded up to 10). Reads `CaseHistory`
+  via the Salesforce REST API with the `sid` cookie of `<org>.my.salesforce.com` (optional `cookies` +
+  `*.my.salesforce.com` permissions, requested from the popup)
 - `src/content/qcc-quick-verdict.js` — QC Center: Accept All / Reject All in the Submit Verdict dialog;
   port of `userscripts/QCC - Accept or Reject.txt`
 - `src/content/text-highlighter.js` — general script: highlights text via the CSS Custom Highlight API (no DOM changes)
