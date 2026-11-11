@@ -92,7 +92,7 @@
       description: 'ERP info cards next to each case in the queue: inspection type, part IDs. ITAR cases: see Settings.',
       cachePrefix: 'erpjob6:',
       partnerCachePrefix: 'erpvendor1:',   // статистика партнёра (Jobs completed) по acceptedVendor
-      customerCachePrefix: 'erpcustomer1:',   // клиент джобы: компания, контакт, email
+      customerCachePrefix: 'erpcustomer2:',   // клиент джобы: компания, контакт, email, CM (GraphQL)
       actions: [
         { id: 'refresh-all', label: 'Refresh all' },
       ],
@@ -171,12 +171,17 @@
   ];
 
   const getSite = (id) => sites.find((s) => s.id === id);
+
+  // Шаблон адреса из manifest ('https://*.lightning.force.com/*') → RegExp
+  const matchPatternRe = (pattern) =>
+    new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
   const isAdminScript = (script) => !!(script.admin || (getSite(script.site) || {}).admin);
 
   XT.registry = {
     sites,
     scripts,
     getSite,
+    matchPatternRe,
     getScript: (id) => scripts.find((s) => s.id === id),
     scriptsForSite: (siteId) => scripts.filter((s) => s.site === siteId),
     isAdminScript,

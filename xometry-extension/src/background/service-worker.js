@@ -16,8 +16,10 @@ function setAuth(ok, message = '') {
   chrome.storage.local.set({ [AUTH_KEY]: lastAuth });
 }
 
-// GET (или POST с init) в ERP с cookies пользователя; резолвится распарсенным JSON
-async function erpFetch(url, init = {}) {
+// GET (или POST с init) в ERP с cookies пользователя; резолвится распарсенным JSON.
+// trackAuth: ответ влияет на статус входа в popup. Только REST: GraphQL-шлюз отвечает 403 и по другим
+// причинам (Origin), а «not logged in» при работающем REST сбивает с толку.
+async function erpFetch(url, init = {}, { trackAuth = true } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let r;
@@ -39,18 +41,39 @@ async function erpFetch(url, init = {}) {
     // Для разбора отказов: что именно ответил сервер (видно в консоли service worker)
     r.clone().text().then((t) => console.warn(`[XT] ${init.method || 'GET'} ${url} → ${r.status} ${r.url}\n${t.slice(0, 1000)}`), () => {});
     const message = `Not authorized in ERP (${r.status}): log in to ERP in this browser`;
-    setAuth(false, message);
+    if (trackAuth) setAuth(false, message);
     throw new Error(message);
   }
   if (r.status !== 200) throw new Error(`ERP responded with ${r.status}`);
-  setAuth(true);
+  if (trackAuth) setAuth(true);
 
   const text = await r.text();
   try { return JSON.parse(text); }
   catch (e) { throw new Error('ERP did not return JSON'); }
 }
 
-const erpGet = (url) => erpFetch(url);
+// ---------------- Общий кеш ответов ERP ----------------
+// Одни и те же данные просят несколько скриптов и вкладок сразу (ERP sidebar и плашка кейса, 2–3 вкладки SF).
+// Одинаковый запрос, который уже идёт, не отправляется второй раз: все ждут один ответ.
+// Готовый ответ живёт MEMO_TTL_MS; fresh: true (кнопки ↻, Shift+click) — всегда новый запрос.
+// Кеш в памяти service worker: Chrome выгружает его через ~30 с простоя, и кеш просто начинается заново.
+const MEMO_TTL_MS = 60 * 1000;
+const MEMO_MAX = 300;
+const memo = new Map();   // key -> { time, promise }
+
+function memoized(key, fresh, fn) {
+  const hit = memo.get(key);
+  if (!fresh && hit && Date.now() - hit.time < MEMO_TTL_MS) return hit.promise;
+  const promise = fn();
+  memo.set(key, { time: Date.now(), promise });
+  promise.catch(() => { if (memo.get(key) && memo.get(key).promise === promise) memo.delete(key); });
+  if (memo.size > MEMO_MAX) {
+    for (const [k, v] of memo) if (Date.now() - v.time >= MEMO_TTL_MS) memo.delete(k);
+  }
+  return promise;
+}
+
+const erpGet = (url, fresh) => memoized(`GET ${url}`, fresh, () => erpFetch(url));
 
 // ---------------- ERP GraphQL (плашка на странице кейса) ----------------
 // Страница передаёт только имя операции и ID; сами query живут здесь,
@@ -74,19 +97,21 @@ const ERP_GRAPHQL_OPS = {
   },
 };
 
-async function erpGraphql(operation, id) {
+function erpGraphql(operation, id, fresh) {
   const op = ERP_GRAPHQL_OPS[operation];
-  if (!op) throw new Error('Operation is not allowed');
-  if (typeof id !== 'string' || !op.idRe.test(id)) throw new Error('Bad ID');
-  const body = await erpFetch(`${ERP_GRAPHQL_URL}?op=${operation}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ operationName: operation, query: op.query, variables: { id } }),
+  if (!op) return Promise.reject(new Error('Operation is not allowed'));
+  if (typeof id !== 'string' || !op.idRe.test(id)) return Promise.reject(new Error('Bad ID'));
+  return memoized(`GQL ${operation} ${id}`, fresh, async () => {
+    const body = await erpFetch(`${ERP_GRAPHQL_URL}?op=${operation}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationName: operation, query: op.query, variables: { id } }),
+    }, { trackAuth: false });
+    if (body && Array.isArray(body.errors) && body.errors.length && !body.data) {
+      throw new Error(`ERP: ${body.errors[0].message || 'GraphQL error'}`);
+    }
+    return (body && body.data) || {};
   });
-  if (body && Array.isArray(body.errors) && body.errors.length && !body.data) {
-    throw new Error(`ERP: ${body.errors[0].message || 'GraphQL error'}`);
-  }
-  return (body && body.data) || {};
 }
 
 // ---------------- Salesforce API: история кейсов (Case timeline, админский скрипт) ----------------
@@ -158,7 +183,15 @@ const RATE_MENU = [
 ];
 const RATE_PREFIX = 'xt-rate:';
 
+// Кеши прежних форматов: их уже никто не читает, а значит и не чистит по сроку — удаляем при обновлении
+const LEGACY_CACHE_PREFIXES = ['erpcustomer1:'];
+
 chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.get(null).then((items) => {
+    const stale = Object.keys(items).filter((k) => LEGACY_CACHE_PREFIXES.some((p) => k.startsWith(p)));
+    if (stale.length) return chrome.storage.local.remove(stale);
+  }).catch(() => {});
+
   chrome.contextMenus.removeAll(() => {
     const common = { contexts: ['link', 'selection'], documentUrlPatterns: ['https://*.lightning.force.com/*'] };
     chrome.contextMenus.create({ ...common, id: 'xt-rate', title: 'Partner rating' });
@@ -194,7 +227,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg && msg.type === 'ERP_GRAPHQL') {
-    erpGraphql(msg.operation, msg.id).then(
+    erpGraphql(msg.operation, msg.id, !!msg.fresh).then(
       (data) => sendResponse({ ok: true, data }),
       (err) => sendResponse({ ok: false, error: err.message }),
     );
@@ -208,7 +241,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: 'URL is not allowed' });
       return false;
     }
-    erpGet(msg.url).then(
+    erpGet(msg.url, !!msg.fresh).then(
       (data) => sendResponse({ ok: true, data }),
       (err) => sendResponse({ ok: false, error: err.message }),
     );

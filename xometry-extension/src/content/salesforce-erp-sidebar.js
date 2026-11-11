@@ -13,8 +13,7 @@
   const RETRY_DELAYS_MS = [3000, 10000];   // повторы при временных сбоях (таймаут, сеть, 5xx, 429)
   const CARD_WIDTH = 260;        // ширина карточки, px
   const DETAILS_WIDTH = 480;     // ширина панели More; выступает влево от карточки поверх таблицы
-  // Регистр в теме кейса бывает любой (J03b164A); цифра обязательна, чтобы не ловить слова вроде "January"
-  const JOB_ID_RE = /\bJ(?=[0-9A-Z]*\d)[0-9A-Z]{6,10}\b/i;
+  const { JOB_ID_RE, deepQueryAll, deepText, parentAcrossShadow, isVisible, escapeHtml } = XT.dom;
   const LIST_PATH = '/lightning/o/Case/list';
   const ITAR_HEADER_RE = /ITAR/i;   // колонка с галочкой (Primary ITAR Field)
   const SUBJECT_HEADER_RE = /^Subject$/i;
@@ -31,42 +30,7 @@
     error: { bg: '#fdeceb', border: '#ba0517', text: '#8e030f' },
   };
 
-  // ---------------- Утилиты DOM (с учётом shadow DOM) ----------------
-  function deepQueryAll(selector, root = document) {
-    const found = [];
-    const walk = (node) => {
-      node.querySelectorAll(selector).forEach((el) => found.push(el));
-      node.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); });
-    };
-    walk(root);
-    return found;
-  }
-
-  function deepText(node) {
-    const parts = [];
-    const walk = (n) => {
-      if (n.nodeType === Node.TEXT_NODE) {
-        const t = n.textContent.trim();
-        if (t) parts.push(t);
-        return;
-      }
-      if (n.shadowRoot) n.shadowRoot.childNodes.forEach(walk);
-      n.childNodes.forEach(walk);
-    };
-    walk(node);
-    return parts.join(' ');
-  }
-
-  function parentAcrossShadow(el) {
-    if (el.parentElement) return el.parentElement;
-    const root = el.getRootNode();
-    return root && root.host ? root.host : null;
-  }
-
-  function isVisible(el) {
-    return el && el.isConnected && el.getClientRects().length > 0;
-  }
-
+  // ---------------- Утилиты DOM (общие — в src/common/sf-dom.js) ----------------
   function findScroller(el) {
     let cur = parentAcrossShadow(el);
     while (cur && cur !== document.body) {
@@ -121,7 +85,7 @@
         const entry = store.get(key);
         if (!force && (state.has(key) || (entry && Date.now() - entry.time < EXTRA_TTL_MIN * 60 * 1000))) return;
         state.set(key, { status: 'loading' });
-        limited(() => fetcher(key))
+        limited(() => fetcher(key, { fresh: force }))
           .then((data) => { store.set(key, { time: Date.now(), ...data }); state.delete(key); })
           .catch((err) => state.set(key, { status: 'error', message: err.message }))
           .finally(renderAll);
@@ -139,27 +103,14 @@
   }
 
   // vendor (acceptedVendor) -> { completedJobs }
-  const partnerInfo = lazyInfo(PARTNER_CACHE_PREFIX, (vendor) =>
-    XT.erp.getJson(XT.erp.vendorStatsUrl(vendor))
-      .then((d) => ({ completedJobs: d && d.total_completed_jobs })));
+  const partnerInfo = lazyInfo(PARTNER_CACHE_PREFIX, (vendor, opts) => XT.erp.partnerStats(vendor, opts));
 
-  // jobId -> { company, contact, email }. ID клиента — начало orderId (E0954-15001 -> E0954).
-  // orderId берём из ответа по джобе, а если там нет — из job-plan.
-  const customerInfo = lazyInfo(CUSTOMER_CACHE_PREFIX, async (jobId) => {
-    const entry = cacheGet(jobId);
-    let orderId = entry && entry.summary.orderId;
-    if (!orderId) {
-      const plan = await XT.erp.getJson(XT.erp.jobPlanUrl(jobId));
-      orderId = plan && plan.data && plan.data.orderId;
-    }
-    const userId = orderId && String(orderId).split('-')[0];
-    if (!userId) throw new Error('No order ID for this job');
-    const u = (await XT.erp.getJson(XT.erp.userUrl(userId))) || {};
-    return {
-      company: u.company_name || (u.company && u.company.name) || '',
-      contact: [u.first_name, u.last_name].filter(Boolean).join(' '),
-      email: u.email_address || '',
-    };
+  // jobId -> { company, contact, email, cm }: те же два GraphQL-запроса, что у плашки кейса
+  // (XT.erp.jobOrderInfo), поэтому кейс, открытый из очереди, получает данные из кеша background.
+  const customerInfo = lazyInfo(CUSTOMER_CACHE_PREFIX, async (jobId, opts) => {
+    const i = await XT.erp.jobOrderInfo(jobId, opts);
+    if (!i.hasOrder) throw new Error(i.orderError || 'No order for this job');
+    return { company: i.company, contact: i.contact, email: i.email, cm: i.cm };
   });
 
   // ---------------- Case timeline (админский скрипт sf-case-timeline) ----------------
@@ -352,8 +303,6 @@
       partner: (data && data.partnerCompanyName) || '',
       partnerId: (data && data.partnerId) || '',
       vendor: (data && data.acceptedVendor) || '',
-      // Есть ли orderId в этом ответе, не проверено; если нет, клиент найдётся через job-plan
-      orderId: (data && (data.orderId || (Array.isArray(data.orderIds) && data.orderIds[0]))) || '',
       parts,
     };
   }
@@ -362,6 +311,7 @@
   const queue = [];
   const inFlight = new Set();
   const retries = new Map();   // jobId -> сколько повторов уже сделано
+  const freshIds = new Set();  // запрошены явно (Shift+click, Refresh all): мимо минутного кеша background
   let active = 0;
 
   // Не повторяем то, что само не пройдёт: нет входа в ERP, 404, перезагрузка расширения
@@ -385,6 +335,7 @@
     if (inFlight.has(jobId) || queue.includes(jobId)) return;
     // state есть, пока джоба в работе, ждёт повтора или упала: такие перезапрашиваем только явно
     if (!force && (isFresh(cacheGet(jobId)) || state.has(jobId))) return;
+    if (force) freshIds.add(jobId);
     queue.push(jobId);
     pump();
   }
@@ -395,7 +346,7 @@
       active++;
       inFlight.add(jobId);
       state.set(jobId, { status: 'loading' });
-      fetchJob(jobId)
+      fetchJob(jobId, freshIds.delete(jobId))
         .then((summary) => { cacheSet(jobId, summary); state.delete(jobId); retries.delete(jobId); })
         .catch((err) => onFetchError(jobId, err))
         .finally(() => { active--; inFlight.delete(jobId); renderAll(); pump(); });
@@ -403,14 +354,13 @@
   }
 
   // Запрос идёт через background (общий модуль src/common/erp-client.js)
-  function fetchJob(jobId) {
-    return XT.erp.getJson(XT.erp.jobApiUrl(jobId)).then(summarize);
+  function fetchJob(jobId, fresh) {
+    return XT.erp.getJson(XT.erp.jobApiUrl(jobId), { fresh }).then(summarize);
   }
 
   // ---------------- Чтение таблицы кейсов ----------------
   const state = new Map();     // jobId -> {status:'loading'|'error', message}
   let rows = [];               // [{key, tr, jobId, itar, table, scroller}]
-  let loggedSample = false;
 
   function headerLabels(table) {
     const ths = table.querySelectorAll('thead tr > *');
@@ -427,6 +377,7 @@
 
   function scanTables() {
     if (!location.pathname.startsWith(LIST_PATH)) { rows = []; return; }
+    if (document.hidden) return;   // фоновая вкладка: таблицу перечитаем, когда её откроют (visibilitychange)
 
     const found = [];
     deepQueryAll('table').filter(isVisible).forEach((table) => {
@@ -441,11 +392,6 @@
         const subjectCell = cells[subjectIdx];
         if (!subjectCell) return;
         const itarCell = itarIdx >= 0 ? cells[itarIdx] : null;
-
-        if (!loggedSample && itarCell) {
-          console.log('[ERP sidebar] ITAR cell sample:', itarCell.outerHTML);
-          loggedSample = true;
-        }
 
         const match = deepText(subjectCell).match(JOB_ID_RE);
         const key = tr.getAttribute('data-row-key-value') || deepText(subjectCell);
@@ -481,10 +427,6 @@
   const FONT = '12px "Salesforce Sans", Arial, sans-serif';
   const cards = new Map();      // row key -> { card, main, toggle, details }
   const expanded = new Set();   // row keys с открытыми деталями
-
-  function escapeHtml(v) {
-    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
 
   function getCard(key) {
     let c = cards.get(key);
@@ -561,7 +503,8 @@
           : `<div style="font-weight:600">${escapeHtml(infoText(cu, cu.company))}</div>
         <div style="margin-top:2px">${escapeHtml(infoText(cu, cu.contact))}</div>
         <div style="margin-top:2px;overflow-wrap:anywhere">${cu.email
-          ? `<a href="mailto:${encodeURIComponent(cu.email)}">${escapeHtml(cu.email)}</a>` : '—'}</div>`}
+          ? `<a href="mailto:${encodeURIComponent(cu.email)}">${escapeHtml(cu.email)}</a>` : '—'}</div>
+        <div style="margin-top:2px"><span style="color:#706e6b">CM:</span> <b>${escapeHtml(infoText(cu, cu.cm))}</b></div>`}
       </div>`;
     return watchDetails(matches) + timelineDetails(caseId) + `
       <div style="display:flex;gap:12px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e5e5e5;white-space:normal">
@@ -728,6 +671,7 @@
     running = true;
     document.body.appendChild(layer);
     document.addEventListener('click', onDocClick, true);
+    document.addEventListener('visibilitychange', scanTables);
     scanTimer = setInterval(scanTables, 1500);
     scanTables();
     rafId = requestAnimationFrame(positionCards);
@@ -737,6 +681,7 @@
     if (!running) return;
     running = false;
     document.removeEventListener('click', onDocClick, true);
+    document.removeEventListener('visibilitychange', scanTables);
     clearInterval(scanTimer);
     cancelAnimationFrame(rafId);
     queue.length = 0;

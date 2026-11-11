@@ -85,5 +85,37 @@
     return matches.size === 1 ? [...matches][0] : null;
   }
 
-  XT.dom = { deepQueryAll, deepText, parentAcrossShadow, isVisible, launchVqcCell, findLaunchVqcAction, caseJobId };
+  // Ячейку Launch VQC и номер джобы ищут несколько скриптов (Open in ERP, Case ERP panel, Case quick text),
+  // каждый на своём таймере, а поиск обходит всю страницу с shadow DOM. Результат живёт MEMO_MS
+  // в пределах одного адреса: за тик скриптов поиск идёт один раз, а не три.
+  const MEMO_MS = 400;
+  function memo(find, stillValid) {
+    let value = null;
+    let time = 0;
+    let path = '';
+    return () => {
+      if (Date.now() - time < MEMO_MS && path === location.pathname && stillValid(value)) return value;
+      value = find();
+      time = Date.now();
+      path = location.pathname;
+      return value;
+    };
+  }
+
+  const escapeHtml = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  XT.dom = {
+    deepQueryAll,
+    deepText,
+    parentAcrossShadow,
+    isVisible,
+    escapeHtml,
+    JOB_ID_RE,
+    findLaunchVqcAction,
+    // Видимость проверяем: в консоли SF соседний кейс-таб остаётся в DOM скрытым
+    launchVqcCell: memo(launchVqcCell, (cell) => !cell || isVisible(cell)),
+    caseJobId: memo(caseJobId, () => true),
+  };
 })();

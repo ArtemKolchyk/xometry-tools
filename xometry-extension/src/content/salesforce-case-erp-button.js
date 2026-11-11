@@ -47,6 +47,7 @@
   let timer = null;
 
   function syncButton() {
+    if (document.hidden) return;   // фоновая вкладка; при возврате — visibilitychange
     if (!CASE_PATH_RE.test(location.pathname)) {
       button.remove();
       return;
@@ -74,12 +75,14 @@
     running = true;
     syncButton();
     timer = setInterval(syncButton, 1200);
+    document.addEventListener('visibilitychange', syncButton);
   }
 
   function stop() {
     if (!running) return;
     running = false;
     clearInterval(timer);
+    document.removeEventListener('visibilitychange', syncButton);
     button.remove();
   }
 

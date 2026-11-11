@@ -262,7 +262,8 @@
     if (running) return;
     running = true;
     caseEmails();
-    timer = setInterval(caseEmails, 2000);   // запоминаем поля, пока открыт Details
+    // Запоминаем поля, пока открыт Details; в фоновой вкладке не ищем (при Send поля читаются заново)
+    timer = setInterval(() => { if (!document.hidden) caseEmails(); }, 2000);
   }
 
   function stop() {

@@ -1,8 +1,8 @@
 // Salesforce Case record: плашка с данными из ERP под шапкой кейса (Highlight).
 // Заказчик, партнёр (и сколько jobs он выполнил), CM, internal notes джобы, staff notes заказа (свёрнуто).
 // ▲! — совпадения со списками Partners / Customers (src/common/watchlist.js), как на карточках ERP sidebar.
-// Данные: GraphQL PartnerJob (заметки, номер заказа, vendor) → GetOrderDetails (CM, заказчик, staff notes,
-// имя партнёра) → статистика партнёра (кеш общий с ERP sidebar).
+// Данные: XT.erp.jobOrderInfo (GraphQL PartnerJob → GetOrderDetails, общий с ERP sidebar)
+// и XT.erp.partnerStats (кеш общий с ERP sidebar).
 (function () {
   'use strict';
 
@@ -13,14 +13,10 @@
   const DATA_TTL_MS = 5 * 60 * 1000;        // заметки меняются: при возврате к кейсу через 5 мин перечитываем
   const ERROR_RETRY_MS = 60 * 1000;
   const PARTNER_TTL_MS = 12 * 60 * 60 * 1000;   // как в ERP sidebar
-  const { parentAcrossShadow } = XT.dom;
+  const { parentAcrossShadow, escapeHtml } = XT.dom;
 
   // Статистика партнёра: тот же кеш, что у ERP sidebar ({ time, completedJobs } по acceptedVendor)
   const partnerCache = XT.createCache(XT.registry.getScript('sf-erp-sidebar').partnerCachePrefix);
-
-  const escapeHtml = (s) => String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   const formatDate = (iso) => {
     const d = new Date(iso);
@@ -42,39 +38,21 @@
     data.set(jobId, entry);
     render();
     try {
-      const pj = (await XT.erp.graphql('PartnerJob', jobId)).partnerJob;
-      if (!pj) throw new Error(`${jobId} not found in ERP`);
-      const orderIds = [...new Set((pj.lineItems || []).map((li) => li.xometryOrderId).filter(Boolean))];
-      entry.job = {
-        notes: String(pj.internalNotes || '').trim(),
-        vendor: pj.acceptedVendor || '',
-        orderId: orderIds[0] || '',
-      };
-      loadPartnerStats(entry.job.vendor, force);
-      render();
-
-      if (entry.job.orderId) {
-        // CM у всех заказов одной джобы один и тот же — берём первый заказ
-        const o = (await XT.erp.graphql('GetOrderDetails', entry.job.orderId)).getOrder;
-        if (o) {
-          const jobs = (o.lineItems || []).flatMap((li) => (li.outsourcing && li.outsourcing.jobs) || []);
-          const mine = jobs.find((j) => j.jobId === jobId) || {};
-          const c = o.customer || {};
-          entry.order = {
-            cm: (o.orderAssignment && o.orderAssignment.caseManagerName) || '',
-            company: c.companyName || '',
-            contact: c.customerName || '',
-            email: c.customerEmail || '',
-            partnerName: mine.partnerName || '',
-            partnerId: mine.partnerId || '',
-            staffNotes: (o.orderNotes || []).map((n) => ({
-              text: String(n.text || '').trim(),
-              date: formatDate(n.createdAt),
-              author: (n.staffUser && n.staffUser.name) || '',
-            })).filter((n) => n.text),
-          };
-        }
+      const i = await XT.erp.jobOrderInfo(jobId, { fresh: force });
+      entry.job = { notes: i.notes, vendor: i.vendor, orderId: i.orderId };
+      loadPartnerStats(i.vendor, force);
+      if (i.hasOrder) {
+        entry.order = {
+          cm: i.cm,
+          company: i.company,
+          contact: i.contact,
+          email: i.email,
+          partnerName: i.partnerName,
+          partnerId: i.partnerId,
+          staffNotes: i.staffNotes.map((n) => ({ text: n.text, author: n.author, date: formatDate(n.createdAt) })),
+        };
       }
+      if (i.orderError) entry.error = `Order ${i.orderId}: ${i.orderError}`;
     } catch (err) {
       entry.error = err.message;
     } finally {
@@ -90,8 +68,8 @@
     const cached = partnerCache.get(vendor);
     if (!force && cached && Date.now() - cached.time < PARTNER_TTL_MS) return;
     partnerState.set(vendor, { loading: true });
-    XT.erp.getJson(XT.erp.vendorStatsUrl(vendor))
-      .then((d) => { partnerCache.set(vendor, { time: Date.now(), completedJobs: d && d.total_completed_jobs }); partnerState.delete(vendor); })
+    XT.erp.partnerStats(vendor, { fresh: force })
+      .then((s) => { partnerCache.set(vendor, { time: Date.now(), ...s }); partnerState.delete(vendor); })
       .catch((err) => partnerState.set(vendor, { error: err.message }))
       .finally(render);
   }
@@ -291,6 +269,7 @@
   let timer = null;
 
   function sync() {
+    if (document.hidden) return;   // фоновая вкладка; при возврате — visibilitychange
     if (!CASE_PATH_RE.test(location.pathname)) { panel.remove(); currentJobId = null; return; }
     const jobId = XT.dom.caseJobId();
     if (!jobId) { panel.remove(); currentJobId = null; return; }
@@ -310,12 +289,14 @@
     running = true;
     partnerCache.ready.then(sync);
     timer = setInterval(sync, TICK_MS);
+    document.addEventListener('visibilitychange', sync);
   }
 
   function stop() {
     if (!running) return;
     running = false;
     clearInterval(timer);
+    document.removeEventListener('visibilitychange', sync);
     panel.remove();
     currentJobId = null;
     lastHtml = '';

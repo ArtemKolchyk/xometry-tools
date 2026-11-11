@@ -16,6 +16,8 @@ const SYNC_SECTIONS = [
 ];
 
 const CHANGELOG = [
+  ['0.7.1', 'Faster: less work on Salesforce pages (nothing runs in background tabs, highlights recalculate only '
+    + 'when the page changes), repeated ERP requests are merged. ERP sidebar More shows the CM.'],
   ['0.7.0', 'Case ERP panel: under the Case header — customer, partner with jobs completed, CM, internal notes '
     + 'of the job and staff notes of the order; ▲! for names from your Partners / Customers lists.'],
   ['0.6.0', 'Partners and Customers: your own lists with notes (bottom of the menu); matching ERP sidebar cards '

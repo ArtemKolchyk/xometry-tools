@@ -24,14 +24,27 @@ in the popup and can be turned on/off individually.
   - `registry.js` — sites and scripts list; the popup is built from it
   - `settings.js` — on/off switches (`chrome.storage.sync`), extension-wide prefs `XT.prefs` (Pause all, ITAR user)
     and popup → content script actions. `XT.settings.watch` already honors Pause all
-  - `storage-cache.js` — `chrome.storage.local` cache with an in-memory `Map` (synchronous `get`)
-  - `erp-client.js` — ERP API for content scripts: URLs, `getJson`, `openTab` (via background)
+  - `storage-cache.js` — `chrome.storage.local` cache with an in-memory `Map` (synchronous `get`);
+    all caches of a page share one read of `chrome.storage.local`
+  - `erp-client.js` — ERP API for content scripts (via background): URLs, `getJson`, `graphql`, `openTab`, and shared
+    loaders `partnerStats(vendor)` and `jobOrderInfo(jobId)` (GraphQL PartnerJob → GetOrderDetails: notes, customer,
+    CM, staff notes, partner). `{ fresh: true }` skips the background's 1-minute response cache
+  - `text-scan.js` — one shared walk over the page text for Text highlighter and Partner rating; re-walks only
+    after DOM changes (MutationObserver, also on shadow roots) or every 10 s
   - `highlight-rules.js` — rules of the Text highlighter (`chrome.storage.sync`) and color presets.
     A rule has a name (notes), comma-separated texts and a place: all sites, one registry site or part of a URL.
     Custom URLs work only where the highlighter is loaded (`content_scripts` in `manifest.json`)
   - `quick-text-buttons.js` — buttons of Case quick text (`chrome.storage.sync`), color presets and page slots
-  - `sf-dom.js` — Salesforce DOM helpers: shadow-DOM search, the Launch VQC cell on a Case
-- `src/background/service-worker.js` — ERP requests with `credentials: 'include'`, opening tabs, ERP login status
+  - `sf-dom.js` — Salesforce DOM helpers: shadow-DOM search, the Launch VQC cell and the job ID of a Case
+    (both remembered for 400 ms, since several scripts ask on every tick), `escapeHtml`
+- `src/background/service-worker.js` — ERP requests with `credentials: 'include'` (identical requests in flight are
+  merged, answers kept 1 min in memory), GraphQL with a fixed list of operations, opening tabs, ERP login status (REST only)
+- `src/rules/erp-graphql-origin.json` — `declarativeNetRequest` rule: sets `Origin`/`Referer` to www.xometry.com
+  on POSTs to the ERP GraphQL endpoint, which rejects the extension origin with 403
+- `src/content/salesforce-case-info-panel.js` — Case ERP panel under the Case header: customer, partner with jobs completed,
+  CM, internal notes, staff notes (collapsed), ▲! for watchlist names, Partner Shipping Block placeholder
+- Timers of page scripts skip work in background tabs (`document.hidden`) and catch up on `visibilitychange`
+- `npm run check` (`check.js`) — `node --check` on every `src/**/*.js`
 - `src/content/salesforce-erp-sidebar.js` — port of `userscripts/salesforce-erp-sidebar.user.js`
 - `src/content/salesforce-case-erp-button.js` — opens the job from an open Salesforce Case in ERP
 - `src/content/salesforce-case-cc-check.js` — holds Send in a Case email when the case's Additional VQC Email

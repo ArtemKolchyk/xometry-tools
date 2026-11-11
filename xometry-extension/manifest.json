@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Xometry Tools",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Helper tools for the Xometry VQC team in Salesforce and QC Center: ERP cards, highlights, partner rating, quick text and more.",
   "icons": {
     "16": "icons/icon16.png",
@@ -61,6 +61,7 @@
         "src/common/quick-text-buttons.js",
         "src/common/sf-dom.js",
         "src/common/partner-rating.js",
+        "src/common/text-scan.js",
         "src/content/text-highlighter.js",
         "src/content/partner-rating.js",
         "src/content/auto-refresh.js",
@@ -80,6 +81,7 @@
         "src/common/registry.js",
         "src/common/settings.js",
         "src/common/highlight-rules.js",
+        "src/common/text-scan.js",
         "src/content/text-highlighter.js",
         "src/content/qcc-quick-verdict.js"
       ],

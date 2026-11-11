@@ -40,11 +40,6 @@
     }));
   }
 
-  // 'https://*.lightning.force.com/*' → RegExp
-  function matchPatternRe(pattern) {
-    return new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
-  }
-
   // Несколько текстов в одном правиле — через запятую
   function splitTexts(text) {
     return String(text).split(',').map((t) => t.trim()).filter(Boolean);
@@ -57,7 +52,7 @@
       return !part || href.toLowerCase().includes(part);
     }
     const site = XT.registry && XT.registry.sites.find((s) => s.id === rule.site);
-    return !!site && site.matches.some((m) => matchPatternRe(m).test(href));
+    return !!site && site.matches.some((m) => XT.registry.matchPatternRe(m).test(href));
   }
 
   XT.highlightRules = {

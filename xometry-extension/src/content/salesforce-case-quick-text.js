@@ -273,6 +273,8 @@
   let timer = null;
 
   function syncSlots() {
+    // Фоновая вкладка: не ищем места (при возврате — visibilitychange). После stop() — убираем кнопки и там.
+    if (document.hidden && running) return;
     const onCase = running && CASE_PATH_RE.test(location.pathname);
     store.SLOTS.forEach(({ id }) => {
       const box = boxes[id];
@@ -286,12 +288,14 @@
     running = true;
     syncSlots();
     timer = setInterval(syncSlots, 1200);
+    document.addEventListener('visibilitychange', syncSlots);
   }
 
   function stop() {
     if (!running) return;
     running = false;
     clearInterval(timer);
+    document.removeEventListener('visibilitychange', syncSlots);
     setArranging(false);
   }
 

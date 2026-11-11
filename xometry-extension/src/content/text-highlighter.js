@@ -7,9 +7,8 @@
   'use strict';
 
   const SCRIPT_ID = 'text-highlighter';
-  const SCAN_MS = 1500;          // как часто перескан (таблицы в Salesforce перерисовываются сами)
+  const SCAN_MS = 1500;          // как часто проверяем, не изменилась ли страница (src/common/text-scan.js)
   const NAME_PREFIX = 'xt-hl-';
-  const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION']);
 
   if (!(window.CSS && CSS.highlights && window.Highlight)) {
     console.warn('[Text highlighter] CSS Custom Highlight API is not supported in this browser');
@@ -38,35 +37,28 @@
       `::highlight(${NAME_PREFIX}${i}) { background-color: ${r.bg}; color: ${r.color}; }`).join('\n'));
   }
 
-  function collectTextNodes(root, out) {
-    adoptSheet(root instanceof ShadowRoot ? root : document);
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => (n.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has(n.tagName)
-        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-    });
-    let n;
-    while ((n = walker.nextNode())) {
-      if (n.nodeType === Node.TEXT_NODE) { if (n.data.trim()) out.push(n); }
-      else if (n.shadowRoot) collectTextNodes(n.shadowRoot, out);
-    }
-  }
-
   function clearHighlights() {
     for (let i = 0; i < usedNames; i++) CSS.highlights.delete(NAME_PREFIX + i);
     usedNames = 0;
   }
 
-  function scan() {
-    clearHighlights();
-    if (!rules.length || !document.body) return;
-
+  // Пересчёт только если изменились страница, адрес или правила (force); в фоновой вкладке — не считаем
+  let lastKey = '';
+  function scan(force = false) {
+    if (!force && document.hidden) return;
     // Salesforce — SPA: адрес меняется без перезагрузки, поэтому сайт правила проверяем на каждом скане
     const href = location.href;
+    const key = `${XT.textScan.version()}|${href}`;
+    if (!force && key === lastKey) return;
+    lastKey = key;
+
+    clearHighlights();
+    if (!rules.length || !document.body) return;
     const active = rules.map((r) => XT.highlightRules.appliesTo(r, href));
     if (!active.some(Boolean)) return;
 
-    const nodes = [];
-    collectTextNodes(document.body, nodes);
+    const { nodes, roots } = XT.textScan.snapshot();
+    roots.forEach((root) => adoptSheet(root instanceof ShadowRoot ? root : document));
     const highlights = rules.map(() => new Highlight());
 
     nodes.forEach((node) => {
@@ -103,22 +95,27 @@
     running = true;
     adoptSheet(document);
     scanTimer = setInterval(scan, SCAN_MS);
-    scan();
+    document.addEventListener('visibilitychange', onVisible);
+    scan(true);
   }
 
   function stop() {
     if (!running) return;
     running = false;
     clearInterval(scanTimer);
+    document.removeEventListener('visibilitychange', onVisible);
     clearHighlights();
+    lastKey = '';
   }
+
+  function onVisible() { if (!document.hidden) scan(); }
 
   XT.highlightRules.watch((list) => {
     rules = list
       .map((r) => ({ ...r, needles: XT.highlightRules.splitTexts(r.text).map((t) => t.toLowerCase()) }))
       .filter((r) => r.enabled && r.needles.length);
     updateStyles();
-    if (running) scan();
+    if (running) scan(true);
   });
 
   XT.settings.watch(SCRIPT_ID, (on) => (on ? start() : stop()));

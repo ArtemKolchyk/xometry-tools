@@ -14,7 +14,6 @@
   const SCAN_MS = 1500;
   const NAME_PREFIX = 'xt-pr-';
   const PRIORITY = 1000;   // выше правил Text highlighter
-  const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION']);
   const store = XT.partnerRating;
   const RATING_IDS = Object.keys(store.RATINGS);
 
@@ -84,19 +83,6 @@
     styledRoots.add(root);
   }
 
-  function collectTextNodes(root, out) {
-    adoptSheet(root instanceof ShadowRoot ? root : document);
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => (n.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has(n.tagName)
-        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-    });
-    let n;
-    while ((n = walker.nextNode())) {
-      if (n.nodeType === Node.TEXT_NODE) { if (n.data.trim()) out.push(n); }
-      else if (n.shadowRoot) collectTextNodes(n.shadowRoot, out);
-    }
-  }
-
   function clearHighlights() {
     RATING_IDS.forEach((r) => CSS.highlights.delete(NAME_PREFIX + r));
   }
@@ -109,13 +95,20 @@
     return byName.get(store.cleanName(node.data).toLowerCase()) || null;
   }
 
-  function scan() {
+  // Общий обход текста (src/common/text-scan.js): пересчёт, только если страница или рейтинг (force) изменились
+  let lastVersion = 0;
+  function scan(force = false) {
+    if (!force && document.hidden) return;
+    const version = XT.textScan.version();
+    if (!force && version === lastVersion) return;
+    lastVersion = version;
+
     clearHighlights();
     if ((!byId.size && !byName.size) || !document.body) return;
 
     const highlights = Object.fromEntries(RATING_IDS.map((r) => [r, new Highlight()]));
-    const nodes = [];
-    collectTextNodes(document.body, nodes);
+    const { nodes, roots } = XT.textScan.snapshot();
+    roots.forEach((root) => adoptSheet(root instanceof ShadowRoot ? root : document));
     nodes.forEach((node) => {
       const rating = ratingFor(node);
       if (!rating) return;
@@ -143,15 +136,20 @@
     running = true;
     adoptSheet(document);
     scanTimer = setInterval(scan, SCAN_MS);
-    scan();
+    document.addEventListener('visibilitychange', onVisible);
+    scan(true);
   }
 
   function stop() {
     if (!running) return;
     running = false;
     clearInterval(scanTimer);
+    document.removeEventListener('visibilitychange', onVisible);
     clearHighlights();
+    lastVersion = 0;
   }
+
+  function onVisible() { if (!document.hidden) scan(); }
 
   store.watch((map) => {
     byId = new Map();
@@ -160,7 +158,7 @@
       if (key.startsWith('id:')) byId.set(key.slice(3), e.rating);
       if (e.name) byName.set(e.name.toLowerCase(), e.rating);
     });
-    if (running) scan();
+    if (running) scan(true);
   });
 
   XT.settings.watch(SCRIPT_ID, (on) => (on ? start() : stop()));

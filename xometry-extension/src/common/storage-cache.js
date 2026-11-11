@@ -19,10 +19,23 @@
     },
   };
 
+  // Все кеши страницы создаются при загрузке скриптов, почти одновременно: читаем storage.local
+  // один раз на всех, а не по полному чтению на каждый кеш. Чтение старше SHARED_READ_MS не переиспользуем.
+  const SHARED_READ_MS = 2000;
+  let sharedRead = null;
+  let sharedReadTime = 0;
+  function readAll() {
+    if (!sharedRead || Date.now() - sharedReadTime > SHARED_READ_MS) {
+      sharedRead = chrome.storage.local.get(null);
+      sharedReadTime = Date.now();
+    }
+    return sharedRead;
+  }
+
   XT.createCache = function (prefix) {
     const memory = new Map();
 
-    const ready = chrome.storage.local.get(null).then((items) => {
+    const ready = readAll().then((items) => {
       const stale = [];
       Object.entries(items).forEach(([key, value]) => {
         if (!key.startsWith(prefix)) return;

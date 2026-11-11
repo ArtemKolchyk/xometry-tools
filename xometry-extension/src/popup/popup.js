@@ -27,10 +27,7 @@ function el(tag, props = {}, children = []) {
   return node;
 }
 
-function matchPatternToRegExp(pattern) {
-  const escaped = pattern.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'));
-  return new RegExp(`^${escaped.join('.*')}$`);
-}
+const matchPatternToRegExp = registry.matchPatternRe;
 
 function siteForUrl(url) {
   if (!url) return null;
