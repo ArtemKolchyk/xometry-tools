@@ -16,7 +16,8 @@ function setAuth(ok, message = '') {
   chrome.storage.local.set({ [AUTH_KEY]: lastAuth });
 }
 
-async function erpGet(url) {
+// GET (или POST с init) в ERP с cookies пользователя; резолвится распарсенным JSON
+async function erpFetch(url, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let r;
@@ -24,7 +25,8 @@ async function erpGet(url) {
     r = await fetch(url, {
       method: 'GET',
       credentials: 'include',
-      headers: { Accept: 'application/json' },
+      ...init,
+      headers: { Accept: 'application/json', ...(init.headers || {}) },
       signal: controller.signal,
     });
   } catch (e) {
@@ -34,7 +36,9 @@ async function erpGet(url) {
   }
 
   if (r.status === 401 || r.status === 403 || /login|signin|sso/i.test(r.url || '')) {
-    const message = 'Not authorized in ERP: log in to ERP in this browser';
+    // Для разбора отказов: что именно ответил сервер (видно в консоли service worker)
+    r.clone().text().then((t) => console.warn(`[XT] ${init.method || 'GET'} ${url} → ${r.status} ${r.url}\n${t.slice(0, 1000)}`), () => {});
+    const message = `Not authorized in ERP (${r.status}): log in to ERP in this browser`;
     setAuth(false, message);
     throw new Error(message);
   }
@@ -44,6 +48,45 @@ async function erpGet(url) {
   const text = await r.text();
   try { return JSON.parse(text); }
   catch (e) { throw new Error('ERP did not return JSON'); }
+}
+
+const erpGet = (url) => erpFetch(url);
+
+// ---------------- ERP GraphQL (плашка на странице кейса) ----------------
+// Страница передаёт только имя операции и ID; сами query живут здесь,
+// чтобы расширение не стало прокси для произвольных GraphQL-запросов.
+const ERP_GRAPHQL_URL = 'https://www.xometry.com/graphql/federation/employee';
+const ERP_GRAPHQL_OPS = {
+  // id — номер джобы (J03E8EE8)
+  PartnerJob: {
+    idRe: /^J[0-9A-Z]{6,10}$/,
+    query: 'query PartnerJob($id: String!) { partnerJob(id: $id) { id acceptedVendor internalNotes '
+      + 'lineItems { xometryOrderId } } }',
+  },
+  // id — номер заказа (6C3EE-1500C)
+  GetOrderDetails: {
+    idRe: /^[0-9A-Z]{4,8}-[0-9A-Z]{4,8}$/,
+    query: 'query GetOrderDetails($id: ID!) { getOrder(id: $id) { id '
+      + 'orderAssignment { caseManagerName } '
+      + 'customer { customerName customerEmail companyName } '
+      + 'orderNotes { text createdAt staffUser { name } } '
+      + 'lineItems { outsourcing { jobs { jobId partnerId partnerName } } } } }',
+  },
+};
+
+async function erpGraphql(operation, id) {
+  const op = ERP_GRAPHQL_OPS[operation];
+  if (!op) throw new Error('Operation is not allowed');
+  if (typeof id !== 'string' || !op.idRe.test(id)) throw new Error('Bad ID');
+  const body = await erpFetch(`${ERP_GRAPHQL_URL}?op=${operation}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operationName: operation, query: op.query, variables: { id } }),
+  });
+  if (body && Array.isArray(body.errors) && body.errors.length && !body.data) {
+    throw new Error(`ERP: ${body.errors[0].message || 'GraphQL error'}`);
+  }
+  return (body && body.data) || {};
 }
 
 // ---------------- Salesforce API: история кейсов (Case timeline, админский скрипт) ----------------
@@ -144,6 +187,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Хост берём из вкладки-отправителя, а не из сообщения
   if (msg && msg.type === 'SF_CASE_HISTORY' && sender.url) {
     sfCaseHistory(sender.url, msg.caseIds).then(
+      (data) => sendResponse({ ok: true, data }),
+      (err) => sendResponse({ ok: false, error: err.message }),
+    );
+    return true;
+  }
+
+  if (msg && msg.type === 'ERP_GRAPHQL') {
+    erpGraphql(msg.operation, msg.id).then(
       (data) => sendResponse({ ok: true, data }),
       (err) => sendResponse({ ok: false, error: err.message }),
     );

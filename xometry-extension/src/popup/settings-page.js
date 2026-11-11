@@ -16,6 +16,8 @@ const SYNC_SECTIONS = [
 ];
 
 const CHANGELOG = [
+  ['0.7.0', 'Case ERP panel: under the Case header — customer, partner with jobs completed, CM, internal notes '
+    + 'of the job and staff notes of the order; ▲! for names from your Partners / Customers lists.'],
   ['0.6.0', 'Partners and Customers: your own lists with notes (bottom of the menu); matching ERP sidebar cards '
     + 'get a ▲! sign, the note shows on hover and in More. Additional VQC Email check: on Send from a Case, '
     + 'asks to add the Additional VQC Email to CC.'],

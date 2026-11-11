@@ -3,5 +3,7 @@ dist/
 *.zip
 *.crx
 *.pem
+# Chrome генерирует для правил declarativeNetRequest у распакованного расширения
+_metadata/
 .DS_Store
 Thumbs.db

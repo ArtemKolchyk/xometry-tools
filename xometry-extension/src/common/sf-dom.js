@@ -65,5 +65,25 @@
     return cell;
   }
 
-  XT.dom = { deepQueryAll, deepText, parentAcrossShadow, isVisible, launchVqcCell };
+  // Номер джобы открытого кейса: из поля Subject, иначе единственный номер на странице.
+  // Регистр в теме кейса бывает любой (J03b164A); цифра обязательна, чтобы не ловить слова вроде "January"
+  const JOB_ID_RE = /\bJ(?=[0-9A-Z]*\d)[0-9A-Z]{6,10}\b/i;
+  function caseJobId() {
+    const subjectLabels = deepQueryAll('.slds-form-element__label, [data-label="Subject"]')
+      .filter((element) => deepText(element).trim().replace(/:$/, '') === 'Subject');
+
+    for (const label of subjectLabels) {
+      let candidate = label;
+      for (let depth = 0; candidate && depth < 4; depth++, candidate = parentAcrossShadow(candidate)) {
+        const match = deepText(candidate).match(JOB_ID_RE);
+        if (match) return match[0].toUpperCase();
+      }
+    }
+
+    const all = document.body.innerText.match(new RegExp(JOB_ID_RE.source, 'gi')) || [];
+    const matches = new Set(all.map((id) => id.toUpperCase()));
+    return matches.size === 1 ? [...matches][0] : null;
+  }
+
+  XT.dom = { deepQueryAll, deepText, parentAcrossShadow, isVisible, launchVqcCell, findLaunchVqcAction, caseJobId };
 })();

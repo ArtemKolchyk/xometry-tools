@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Origin", "operation": "set", "value": "https://www.xometry.com" },
+        { "header": "Referer", "operation": "set", "value": "https://www.xometry.com/erp/" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "|https://www.xometry.com/graphql/federation/employee",
+      "requestMethods": ["post"],
+      "resourceTypes": ["xmlhttprequest"]
+    }
+  }
+]

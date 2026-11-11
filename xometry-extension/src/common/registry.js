@@ -117,6 +117,13 @@
       description: 'Adds an ERP button to Salesforce Case records when a job number is present.',
     },
     {
+      id: 'sf-case-info-panel',
+      site: 'sf-queue',
+      name: 'Case ERP panel',
+      description: 'Under the Case header: customer, partner (jobs completed), CM, internal notes of the job and '
+        + 'staff notes of the order (click to expand). ▲! marks names from your Partners / Customers lists.',
+    },
+    {
       id: 'sf-case-cc-check',
       site: 'sf-queue',
       name: 'Additional VQC Email check',

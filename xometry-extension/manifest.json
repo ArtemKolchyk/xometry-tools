@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Xometry Tools",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Helper tools for the Xometry VQC team in Salesforce and QC Center: ERP cards, highlights, partner rating, quick text and more.",
   "icons": {
     "16": "icons/icon16.png",
@@ -11,11 +11,18 @@
   },
   "permissions": [
     "storage",
-    "contextMenus"
+    "contextMenus",
+    "declarativeNetRequestWithHostAccess"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      { "id": "erp-graphql-origin", "enabled": true, "path": "src/rules/erp-graphql-origin.json" }
+    ]
+  },
   "host_permissions": [
     "https://api.xometry.com/*",
-    "https://www.xometry.com/api/*"
+    "https://www.xometry.com/api/*",
+    "https://www.xometry.com/graphql/*"
   ],
   "optional_permissions": [
     "cookies"
@@ -59,6 +66,7 @@
         "src/content/auto-refresh.js",
         "src/content/salesforce-erp-sidebar.js",
         "src/content/salesforce-case-erp-button.js",
+        "src/content/salesforce-case-info-panel.js",
         "src/content/salesforce-case-cc-check.js",
         "src/content/salesforce-case-quick-text.js"
       ],

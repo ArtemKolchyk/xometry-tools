@@ -65,5 +65,11 @@
     },
 
     colorValue: (color) => (COLORS[color] || COLORS.red).value,
+
+    // Значок ▲! цвета color (SVG-разметка), общий для ERP sidebar и плашки кейса
+    signSvg: (color) => '<svg width="16" height="14" viewBox="0 0 16 14" aria-hidden="true">'
+      + `<path d="M8 1 L15.2 13.2 H0.8 Z" fill="${color}" stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/>`
+      + '<rect x="7.15" y="4.6" width="1.7" height="4.9" rx=".85" fill="#fff"/><circle cx="8" cy="11.2" r="1" fill="#fff"/>'
+      + '</svg>',
   };
 })();

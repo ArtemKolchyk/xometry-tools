@@ -36,6 +36,8 @@
     partnerPageUrl: (partnerId) => `https://staff.xometry.com/partners/${encodeURIComponent(partnerId)}`,
     // GET с cookies пользователя; резолвится распарсенным JSON
     getJson: (url) => send({ type: 'ERP_GET', url }),
+    // GraphQL ERP: только операции из списка в service worker (PartnerJob, GetOrderDetails); резолвится data
+    graphql: (operation, id) => send({ type: 'ERP_GRAPHQL', operation, id }),
   };
 
   // Если расширение перезагрузили, а вкладку нет — открываем вкладку из самой страницы
