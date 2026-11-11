@@ -124,6 +124,14 @@
         + 'staff notes of the order (click to expand). ▲! marks names from your Partners / Customers lists.',
     },
     {
+      id: 'sf-case-shipping-block',
+      site: 'sf-queue',
+      name: 'Shipping block toggle',
+      description: 'On the Case ERP panel: the Partner Shipping Block switch of the job. On — the partner cannot ship '
+        + 'to the customer, Off — can. Changes ERP: every switch asks to confirm. Off by default.',
+      defaultEnabled: false,
+    },
+    {
       id: 'sf-case-cc-check',
       site: 'sf-queue',
       name: 'Additional VQC Email check',

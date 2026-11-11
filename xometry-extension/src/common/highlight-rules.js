@@ -23,9 +23,16 @@
     { bg: '#0176d3', color: '#ffffff' },
   ];
 
-  // Где работает правило: все сайты, один сайт из реестра или своя часть адреса (url)
+  // Где работает правило: все сайты, один сайт из реестра, одна страница Salesforce (PAGES) или своя часть адреса (url)
   const SITE_ALL = 'all';
   const SITE_CUSTOM = 'custom';
+
+  // Сайт «SF queue» — это весь *.lightning.force.com, включая открытые кейсы. Для правил, которые нужны
+  // только в очереди или только в кейсе, — отдельные страницы (Salesforce — SPA, адрес проверяется на каждом скане)
+  const PAGES = [
+    { id: 'sf-case-list', name: 'SF: case lists (queue) only', re: /^https:\/\/[^/]+\.lightning\.force\.com\/lightning\/o\/Case\/list/i },
+    { id: 'sf-case-record', name: 'SF: open Case only', re: /^https:\/\/[^/]+\.lightning\.force\.com\/lightning\/r\/Case\/[^/]+\/view/i },
+  ];
 
   // Цвета попадают в CSS, поэтому всё, что не #rrggbb, заменяем на первый пресет
   function normalize(list) {
@@ -51,6 +58,8 @@
       const part = rule.url.trim().toLowerCase();
       return !part || href.toLowerCase().includes(part);
     }
+    const page = PAGES.find((p) => p.id === rule.site);
+    if (page) return page.re.test(href);
     const site = XT.registry && XT.registry.sites.find((s) => s.id === rule.site);
     return !!site && site.matches.some((m) => XT.registry.matchPatternRe(m).test(href));
   }
@@ -59,6 +68,7 @@
     PRESETS,
     SITE_ALL,
     SITE_CUSTOM,
+    PAGES,
     splitTexts,
     appliesTo,
 

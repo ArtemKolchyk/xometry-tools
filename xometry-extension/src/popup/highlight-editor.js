@@ -71,7 +71,9 @@ function renderHighlightEditor() {
   // Сайты, на которых работает подсветка (общий скрипт): все не-заглушечные, кроме служебных
   const siteOptions = [
     [store.SITE_ALL, 'All sites'],
-    ...XT.registry.sites.filter((s) => !s.stub && !s.general && !s.settings && !s.page).map((s) => [s.id, s.name]),
+    ...XT.registry.sites.filter((s) => !s.stub && !s.general && !s.settings && !s.page)
+      .map((s) => [s.id, s.id === 'sf-queue' ? `${s.name} (all Salesforce pages)` : s.name]),
+    ...store.PAGES.map((p) => [p.id, p.name]),
     [store.SITE_CUSTOM, 'Custom (part of URL)…'],
   ];
 

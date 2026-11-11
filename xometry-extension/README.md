@@ -42,7 +42,10 @@ in the popup and can be turned on/off individually.
 - `src/rules/erp-graphql-origin.json` — `declarativeNetRequest` rule: sets `Origin`/`Referer` to www.xometry.com
   on POSTs to the ERP GraphQL endpoint, which rejects the extension origin with 403
 - `src/content/salesforce-case-info-panel.js` — Case ERP panel under the Case header: customer, partner with jobs completed,
-  CM, internal notes, staff notes (collapsed), ▲! for watchlist names, Partner Shipping Block placeholder
+  CM, internal notes, staff notes (collapsed), ▲! for watchlist names, Partner Shipping Block (the job's
+  `virtualInspection`: true = the partner cannot ship). The state is always shown; switching needs the separate
+  `sf-case-shipping-block` script (off by default), asks to confirm and re-reads ERP afterwards. The background
+  refuses the `UpdateVirtualInspection` mutation unless that script is on (and Pause all is off)
 - Timers of page scripts skip work in background tabs (`document.hidden`) and catch up on `visibilitychange`
 - `npm run check` (`check.js`) — `node --check` on every `src/**/*.js`
 - `src/content/salesforce-erp-sidebar.js` — port of `userscripts/salesforce-erp-sidebar.user.js`

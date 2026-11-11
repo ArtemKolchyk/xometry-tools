@@ -76,15 +76,30 @@ function memoized(key, fresh, fn) {
 const erpGet = (url, fresh) => memoized(`GET ${url}`, fresh, () => erpFetch(url));
 
 // ---------------- ERP GraphQL (плашка на странице кейса) ----------------
-// Страница передаёт только имя операции и ID; сами query живут здесь,
+// Страница передаёт только имя операции, ID и (для записи) значение; сами query живут здесь,
 // чтобы расширение не стало прокси для произвольных GraphQL-запросов.
 const ERP_GRAPHQL_URL = 'https://www.xometry.com/graphql/federation/employee';
+const JOB_ID_RE = /^J[0-9A-Z]{6,10}$/;
 const ERP_GRAPHQL_OPS = {
-  // id — номер джобы (J03E8EE8)
+  // id — номер джобы (J03E8EE8). virtualInspection — это тумблер Partner Shipping Block (true = отправка заблокирована)
   PartnerJob: {
-    idRe: /^J[0-9A-Z]{6,10}$/,
-    query: 'query PartnerJob($id: String!) { partnerJob(id: $id) { id acceptedVendor internalNotes '
+    idRe: JOB_ID_RE,
+    query: 'query PartnerJob($id: String!) { partnerJob(id: $id) { id acceptedVendor internalNotes virtualInspection '
       + 'lineItems { xometryOrderId } } }',
+  },
+  // Запись: тумблер Partner Shipping Block. value — новое значение (boolean). Не кешируется;
+  // после записи кеш PartnerJob этой джобы сбрасывается, чтобы следующее чтение было свежим.
+  UpdateVirtualInspection: {
+    idRe: JOB_ID_RE,
+    mutation: true,
+    requiresScript: 'sf-case-shipping-block',   // запись разрешена, только если этот скрипт включён в popup
+    invalidates: (id) => [`GQL PartnerJob ${id}`],
+    variables: (id, value) => {
+      if (typeof value !== 'boolean') throw new Error('Bad value');
+      return { input: { jobId: id, virtualInspection: value } };
+    },
+    query: 'mutation UpdateVirtualInspection($input: UpdateVirtualInspectionInput!) { '
+      + 'updateVirtualInspection(input: $input) { virtualInspection } }',
   },
   // id — номер заказа (6C3EE-1500C)
   GetOrderDetails: {
@@ -97,21 +112,40 @@ const ERP_GRAPHQL_OPS = {
   },
 };
 
-function erpGraphql(operation, id, fresh) {
+function erpGraphql(operation, id, fresh, value) {
   const op = ERP_GRAPHQL_OPS[operation];
   if (!op) return Promise.reject(new Error('Operation is not allowed'));
   if (typeof id !== 'string' || !op.idRe.test(id)) return Promise.reject(new Error('Bad ID'));
-  return memoized(`GQL ${operation} ${id}`, fresh, async () => {
+  let variables;
+  try { variables = op.variables ? op.variables(id, value) : { id }; }
+  catch (e) { return Promise.reject(e); }
+
+  const run = async () => {
     const body = await erpFetch(`${ERP_GRAPHQL_URL}?op=${operation}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ operationName: operation, query: op.query, variables: { id } }),
+      body: JSON.stringify({ operationName: operation, query: op.query, variables }),
     }, { trackAuth: false });
-    if (body && Array.isArray(body.errors) && body.errors.length && !body.data) {
+    // Для записи ошибка — любая ошибка GraphQL, даже если data пришла (частичный успех не считаем успехом)
+    if (body && Array.isArray(body.errors) && body.errors.length && (op.mutation || !body.data)) {
       throw new Error(`ERP: ${body.errors[0].message || 'GraphQL error'}`);
     }
     return (body && body.data) || {};
+  };
+
+  if (!op.mutation) return memoized(`GQL ${operation} ${id}`, fresh, run);
+  return scriptEnabled(op.requiresScript).then((on) => {
+    if (!on) throw new Error('Turn on the script in the extension popup first');
+    return run().finally(() => op.invalidates(id).forEach((key) => memo.delete(key)));
   });
+}
+
+// Включён ли скрипт: тот же ключ, что у XT.settings (src/common/settings.js); пауза всех скриптов тоже учитывается.
+// Скрипты записи выключены по умолчанию, поэтому «нет записи» = выключен.
+async function scriptEnabled(scriptId) {
+  const items = await chrome.storage.sync.get(['xt:enabled', 'xt:prefs']);
+  const prefs = items['xt:prefs'] || {};
+  return !prefs.paused && !!(items['xt:enabled'] || {})[scriptId];
 }
 
 // ---------------- Salesforce API: история кейсов (Case timeline, админский скрипт) ----------------
@@ -227,7 +261,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg && msg.type === 'ERP_GRAPHQL') {
-    erpGraphql(msg.operation, msg.id, !!msg.fresh).then(
+    erpGraphql(msg.operation, msg.id, !!msg.fresh, msg.value).then(
       (data) => sendResponse({ ok: true, data }),
       (err) => sendResponse({ ok: false, error: err.message }),
     );

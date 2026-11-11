@@ -16,6 +16,9 @@ const SYNC_SECTIONS = [
 ];
 
 const CHANGELOG = [
+  ['0.7.2', 'Case ERP panel: real Partner Shipping Block state; switch it right from the Case with the new '
+    + '"Shipping block toggle" (off by default, asks to confirm). Text highlighter: rules can be limited to case lists '
+    + '(queue) or to an open Case.'],
   ['0.7.1', 'Faster: less work on Salesforce pages (nothing runs in background tabs, highlights recalculate only '
     + 'when the page changes), repeated ERP requests are merged. ERP sidebar More shows the CM.'],
   ['0.7.0', 'Case ERP panel: under the Case header — customer, partner with jobs completed, CM, internal notes '

@@ -28,19 +28,32 @@
   const data = new Map();
   let watch = { partners: [], customers: [] };
 
-  async function load(jobId, force = false) {
+  // Одна загрузка на джобу за раз; повторный вызов получает тот же promise (его ждёт проверка тумблера)
+  const inflight = new Map();   // jobId -> Promise
+  function load(jobId, force = false) {
+    if (inflight.has(jobId)) return inflight.get(jobId);
+    const p = loadNow(jobId, force).finally(() => inflight.delete(jobId));
+    inflight.set(jobId, p);
+    return p;
+  }
+
+  async function loadNow(jobId, force) {
     const prev = data.get(jobId);
-    if (prev && prev.loading) return;
     // После ошибки сами повторяем не чаще раза в минуту (кнопка ↻ — сразу)
     if (!force && prev && Date.now() - prev.time < (prev.error ? ERROR_RETRY_MS : DATA_TTL_MS)) return;
 
-    const entry = { time: Date.now(), loading: true, error: null, job: null, order: null, partner: null };
+    // Пока перечитываем (↻, после переключения тумблера), на экране остаются прежние данные — без мигания «Loading…»
+    const entry = {
+      time: Date.now(), loading: true, error: null,
+      job: (prev && prev.job) || null, order: (prev && prev.order) || null,
+    };
     data.set(jobId, entry);
     render();
     try {
       const i = await XT.erp.jobOrderInfo(jobId, { fresh: force });
-      entry.job = { notes: i.notes, vendor: i.vendor, orderId: i.orderId };
+      entry.job = { notes: i.notes, vendor: i.vendor, orderId: i.orderId, blocked: i.shippingBlocked };
       loadPartnerStats(i.vendor, force);
+      if (!i.hasOrder && !i.orderError) entry.order = null;
       if (i.hasOrder) {
         entry.order = {
           cm: i.cm,
@@ -198,19 +211,7 @@
 
     const warn = e && e.error ? `<div style="color:#8e030f">⚠ ${escapeHtml(e.error)}</div>` : '';
 
-    // Partner Shipping Block — пока заглушка: состояние из ERP не читаем и не меняем.
-    // Серый, без «On/Off», чтобы не выдавать себя за настоящее состояние джобы.
-    const shippingBlock = `
-      <div title="Coming soon: block / unblock partner shipping right from Salesforce"
-        style="flex:none;display:flex;flex-direction:column;justify-content:center;gap:4px;padding-left:12px;border-left:1px solid #e5e5e5;cursor:not-allowed;user-select:none">
-        <span style="${MUTED};font-size:11px">Partner Shipping Block</span>
-        <span style="display:inline-flex;align-items:center;gap:6px;opacity:.6">
-          <span style="position:relative;display:inline-block;width:30px;height:16px;border-radius:8px;background:#c9c9c9">
-            <span style="position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:50%;background:#fff"></span>
-          </span>
-          <span style="${MUTED}">Soon</span>
-        </span>
-      </div>`;
+    const shippingBlock = shippingBlockHtml(jobId, job);
 
     // CM — в верхней строке, после номера заказа; справа — Partner Shipping Block
     return `<div style="display:flex;gap:12px;align-items:stretch">
@@ -222,6 +223,78 @@
       ${staffList}${warn}</div>
       ${shippingBlock}
     </div>`;
+  }
+
+  // ---------------- Partner Shipping Block (поле virtualInspection джобы) ----------------
+  // Состояние видно всегда; переключать можно, только если включён скрипт sf-case-shipping-block
+  // (его же проверяет background перед записью). Каждое переключение — с подтверждением,
+  // после записи состояние перечитывается из ERP.
+  const SHIP_SCRIPT_ID = 'sf-case-shipping-block';
+  let shipToggleOn = false;
+  const shipState = new Map();   // jobId -> { saving: true } | { error }
+
+  function shippingBlockHtml(jobId, job) {
+    const blocked = job ? job.blocked : null;
+    const known = typeof blocked === 'boolean';
+    const st = shipState.get(jobId) || {};
+    const canSwitch = shipToggleOn && known && !st.saving;
+    const title = !known ? 'State not loaded from ERP'
+      : !shipToggleOn ? `${blocked ? 'On: the partner cannot ship' : 'Off: the partner can ship'}.\n`
+        + 'To switch it here, turn on "Shipping block toggle" in the extension popup (SF queue).'
+      : blocked ? 'On: the partner cannot ship to the customer. Click to unblock'
+      : 'Off: the partner can ship to the customer. Click to block';
+    const label = st.saving ? 'Saving…' : known ? (blocked ? 'On' : 'Off') : '—';
+    const track = known && blocked ? '#0176d3' : '#c9c9c9';
+    const knob = known && !blocked ? 'left:2px' : 'right:2px';
+    return `
+      <div ${canSwitch ? 'data-act="ship" role="switch"' : ''} aria-checked="${known && blocked}" title="${escapeHtml(title)}"
+        style="flex:none;display:flex;flex-direction:column;justify-content:center;gap:4px;padding-left:12px;border-left:1px solid #e5e5e5;user-select:none;cursor:${canSwitch ? 'pointer' : 'default'}">
+        <span style="${MUTED};font-size:11px">Partner Shipping Block</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;opacity:${canSwitch ? '1' : '.6'}">
+          <span style="position:relative;display:inline-block;width:30px;height:16px;border-radius:8px;background:${track}">
+            <span style="position:absolute;top:2px;${knob};width:12px;height:12px;border-radius:50%;background:#fff"></span>
+          </span>
+          <b style="font-weight:600">${label}</b>
+        </span>
+        ${st.error ? `<span style="color:#8e030f;font-size:11px;max-width:160px;white-space:normal">⚠ ${escapeHtml(st.error)}</span>` : ''}
+      </div>`;
+  }
+
+  async function toggleShipping(jobId) {
+    const entry = data.get(jobId);
+    const current = entry && entry.job && entry.job.blocked;
+    if (!shipToggleOn || typeof current !== 'boolean' || (shipState.get(jobId) || {}).saving) return;
+    const next = !current;
+    const question = next
+      ? `Block partner shipping for ${jobId}?\n\nThe partner will NOT be able to ship the parts to the customer.`
+      : `Unblock partner shipping for ${jobId}?\n\nThe partner will be able to ship the parts to the customer.`;
+    if (!window.confirm(question)) return;
+
+    shipState.set(jobId, { saving: true });
+    render();
+    let written = false;
+    try {
+      entry.job.blocked = await XT.erp.setShippingBlock(jobId, next);
+      written = true;
+    } catch (err) {
+      shipState.set(jobId, { error: err.message });
+    }
+    render();
+
+    // Проверка: перечитываем джобу из ERP мимо кеша и сверяем с тем, что должно было стать.
+    // На экране — значение из ERP, а не то, что нажали.
+    await inflight.get(jobId);   // загрузка, начатая до записи, сверку не заменяет
+    await load(jobId, true);
+    if (!written) return;
+    const after = data.get(jobId);
+    const actual = after && after.job ? after.job.blocked : null;
+    if (actual === next) shipState.delete(jobId);
+    else if (typeof actual === 'boolean') {
+      shipState.set(jobId, { error: `ERP shows ${actual ? 'On' : 'Off'} after the change: check the job in ERP` });
+    } else {
+      shipState.set(jobId, { error: 'Saved, but could not re-read the state from ERP: press ↻' });
+    }
+    render();
   }
 
   function render() {
@@ -240,6 +313,7 @@
     if (act === 'refresh' && currentJobId) load(currentJobId, true);
     if (act === 'notes') notesOpen = !notesOpen;
     if (act === 'staff') staffOpen = !staffOpen;
+    if (act === 'ship' && currentJobId) { toggleShipping(currentJobId); return; }
     render();
   });
 
@@ -303,5 +377,6 @@
   }
 
   XT.watchlist.watch((lists) => { watch = lists; lastHtml = ''; render(); });
+  XT.settings.watch(SHIP_SCRIPT_ID, (on) => { shipToggleOn = on; render(); });
   XT.settings.watch(SCRIPT_ID, (enabled) => (enabled ? start() : stop()));
 })();

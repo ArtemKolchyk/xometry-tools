@@ -36,8 +36,19 @@
     // Одинаковые запросы background склеивает и минуту отдаёт из памяти; fresh: true — всегда новый запрос.
     getJson: (url, { fresh = false } = {}) => send({ type: 'ERP_GET', url, fresh }),
     // GraphQL ERP: только операции из списка в service worker (PartnerJob, GetOrderDetails); резолвится data
-    graphql: (operation, id, { fresh = false } = {}) => send({ type: 'ERP_GRAPHQL', operation, id, fresh }),
+    graphql: (operation, id, { fresh = false, value } = {}) => send({ type: 'ERP_GRAPHQL', operation, id, fresh, value }),
   };
+
+  // Тумблер Partner Shipping Block (поле virtualInspection джобы): blocked = true — партнёр не может отправить.
+  // Резолвится значением, которое вернул ERP. Background пропускает запись, только если включён sf-case-shipping-block.
+  XT.erp.setShippingBlock = (jobId, blocked) =>
+    XT.erp.graphql('UpdateVirtualInspection', jobId, { value: !!blocked }).then((d) => {
+      const v = d && d.updateVirtualInspection && d.updateVirtualInspection.virtualInspection;
+      if (typeof v !== 'boolean') throw new Error('ERP did not confirm the change');
+      // Ответ «успешно», но со старым значением — изменение не применилось
+      if (v !== !!blocked) throw new Error(`ERP did not apply the change: still ${v ? 'On' : 'Off'}`);
+      return v;
+    });
 
   // Сколько jobs партнёр выполнил: { completedJobs }. vendor — acceptedVendor джобы.
   XT.erp.partnerStats = (vendor, opts) => XT.erp.getJson(XT.erp.vendorStatsUrl(vendor), opts)
@@ -53,6 +64,8 @@
     const info = {
       notes: String(pj.internalNotes || '').trim(),
       vendor: pj.acceptedVendor || '',
+      // Partner Shipping Block: true / false, null — ERP не прислал значение
+      shippingBlocked: typeof pj.virtualInspection === 'boolean' ? pj.virtualInspection : null,
       orderId: orderIds[0] || '',
       hasOrder: false,
       cm: '', company: '', contact: '', email: '', partnerName: '', partnerId: '',
