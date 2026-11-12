@@ -98,6 +98,21 @@
       ],
     },
     {
+      id: 'sf-queue-summary',
+      site: 'sf-queue',
+      name: 'Queue summary',
+      description: 'Bar in the case list header: total cases, ITAR / non-ITAR, and cases by status (New, Pending, '
+        + 'Response Received, Inspection In Progress, Management Review), overdue cases with a checkbox to color their rows. '
+        + 'Overdue: more than N hours since the case appeared in the queue or since its last Pending, set on the bar. '
+        + 'Counting from Pending needs Salesforce API access. Off by default.',
+      defaultEnabled: false,
+      // overdueFrom: 'opened' (Date/Time Opened) | 'pending' (last Pending, case history via Salesforce API)
+      options: { highlightOverdue: false, overdueHours: 48, overdueFrom: 'opened' },
+      // Тот же доступ, что у Case timeline: нужен только для отсчёта от Pending
+      permissions: { permissions: ['cookies'], origins: ['https://*.my.salesforce.com/*'] },
+      permissionsLabel: 'Salesforce API access',
+    },
+    {
       id: 'sf-case-timeline',
       site: 'sf-queue',
       name: 'Case timeline',

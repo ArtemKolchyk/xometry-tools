@@ -102,6 +102,22 @@
     };
   }
 
+  // Таблица списка кейсов: подписи колонок (по ним ищем колонки, а не по позиции) и ячейка-галочка
+  function headerLabels(table) {
+    const ths = table.querySelectorAll('thead tr > *');
+    return [...ths].map((th) => th.getAttribute('aria-label') || th.getAttribute('title') || deepText(th));
+  }
+
+  function isCheckedCell(cell) {
+    if (!cell) return false;
+    const checkedMarkers = deepQueryAll(
+      'svg[data-key="check"], [icon-name="utility:check"], input[type="checkbox"]:checked, ' +
+      'img[alt="Checked"], img[alt="True"], [title="True"], [title="Checked"]', cell);
+    return checkedMarkers.length > 0;
+  }
+
+  const rowCells = (tr) => tr.querySelectorAll(':scope > th, :scope > td');
+
   const escapeHtml = (s) => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -112,6 +128,9 @@
     parentAcrossShadow,
     isVisible,
     escapeHtml,
+    headerLabels,
+    isCheckedCell,
+    rowCells,
     JOB_ID_RE,
     findLaunchVqcAction,
     // Видимость проверяем: в консоли SF соседний кейс-таб остаётся в DOM скрытым

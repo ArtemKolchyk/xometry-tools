@@ -119,7 +119,7 @@
   const TIMELINE_EXTRA_WIDTH = 50;   // карточка шире, чтобы поместилась метка времени
   const HIST_TTL_OPEN_MIN = 5;       // кейс ещё в работе: перечитываем чаще
   const HIST_TTL_DONE_MIN = 60;      // уже ушёл в Pending
-  const HIST_BATCH = 100;            // кейсов в одном запросе к Salesforce API
+  const HIST_BATCH = XT.caseHistory.BATCH;   // кейсов в одном запросе к Salesforce API
   // Норма на первый цикл: 7 мин на деталь + 3 мин на письмо, округление вверх до 10 мин
   const NORM_MIN_PER_PART = 7;
   const NORM_MIN_EMAIL = 3;
@@ -132,17 +132,7 @@
   let timelineOn = false;
   let warnedKeys = false;
 
-  // ID кейса строки: ключ строки, data-recordid или ссылка на запись (/lightning/r/Case/500…/view)
-  const CASE_ID_IN_TEXT_RE = /\b(500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)\b/;
-  function findCaseId(tr, key) {
-    if (XT.caseHistory.isCaseId(key)) return key;
-    for (const node of deepQueryAll('[data-recordid], a[href]', tr)) {
-      const value = node.getAttribute('data-recordid') || node.getAttribute('href') || '';
-      const m = value.match(CASE_ID_IN_TEXT_RE);
-      if (m) return m[1];
-    }
-    return null;
-  }
+  const findCaseId = XT.caseHistory.rowCaseId;   // ключ строки, data-recordid или ссылка на запись
 
   function histFresh(entry) {
     return entry && Date.now() - entry.time < (entry.pending ? HIST_TTL_DONE_MIN : HIST_TTL_OPEN_MIN) * 60000;
@@ -362,18 +352,7 @@
   const state = new Map();     // jobId -> {status:'loading'|'error', message}
   let rows = [];               // [{key, tr, jobId, itar, table, scroller}]
 
-  function headerLabels(table) {
-    const ths = table.querySelectorAll('thead tr > *');
-    return [...ths].map((th) => th.getAttribute('aria-label') || th.getAttribute('title') || deepText(th));
-  }
-
-  function isCheckedCell(cell) {
-    if (!cell) return false;
-    const checkedMarkers = deepQueryAll(
-      'svg[data-key="check"], [icon-name="utility:check"], input[type="checkbox"]:checked, ' +
-      'img[alt="Checked"], img[alt="True"], [title="True"], [title="Checked"]', cell);
-    return checkedMarkers.length > 0;
-  }
+  const { headerLabels, isCheckedCell } = XT.dom;
 
   function scanTables() {
     if (!location.pathname.startsWith(LIST_PATH)) { rows = []; return; }

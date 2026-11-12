@@ -36,11 +36,18 @@ in the popup and can be turned on/off individually.
     Custom URLs work only where the highlighter is loaded (`content_scripts` in `manifest.json`)
   - `quick-text-buttons.js` — buttons of Case quick text (`chrome.storage.sync`), color presets and page slots
   - `sf-dom.js` — Salesforce DOM helpers: shadow-DOM search, the Launch VQC cell and the job ID of a Case
-    (both remembered for 400 ms, since several scripts ask on every tick), `escapeHtml`
+    (both remembered for 400 ms, since several scripts ask on every tick), `escapeHtml`, case list table helpers
+    (`headerLabels`, `isCheckedCell`, `rowCells`)
 - `src/background/service-worker.js` — ERP requests with `credentials: 'include'` (identical requests in flight are
   merged, answers kept 1 min in memory), GraphQL with a fixed list of operations, opening tabs, ERP login status (REST only)
 - `src/rules/erp-graphql-origin.json` — `declarativeNetRequest` rule: sets `Origin`/`Referer` to www.xometry.com
   on POSTs to the ERP GraphQL endpoint, which rejects the extension origin with 403
+- `src/content/salesforce-queue-summary.js` — Queue summary bar in the case list header (between the list title and
+  the buttons): total / ITAR / non-ITAR and cases by status, counted from the table on the page (columns found by
+  their header, no ERP requests). If the list has more cases than loaded, shows "N of M". Overdue: more than
+  N hours (set on the bar) since Date/Time Opened or since the last Pending — the latter reads CaseHistory via
+  the Salesforce API (same optional access as Case timeline, `XT.caseHistory`; re-read every 5 min or when the
+  row's status changes).
 - `src/content/salesforce-case-info-panel.js` — Case ERP panel under the Case header: customer, partner with jobs completed,
   CM, internal notes, staff notes (collapsed), ▲! for watchlist names, Partner Shipping Block (the job's
   `virtualInspection`: true = the partner cannot ship). The state is always shown; switching needs the separate

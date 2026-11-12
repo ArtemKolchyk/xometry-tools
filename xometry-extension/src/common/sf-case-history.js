@@ -7,10 +7,13 @@
   const USER_ID_RE = /^005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;   // владелец-человек; очереди начинаются с 00G
   const PENDING_RE = /^pending$/i;
 
-  // records одного кейса, по возрастанию времени → { taken, pending }
-  //   taken:   первая смена владельца на человека { time, owner, by }
-  //   pending: первый переход в Pending после taken { time, by }
+  // records одного кейса, по возрастанию времени → { taken, pending, lastPending }
+  //   taken:        первая смена владельца на человека { time, owner, by }
+  //   pending:      первый переход в Pending после taken { time, by }
+  //   lastPending:  время последнего перехода в Pending (Queue summary), null — ещё не было
   function summarizeCase(records) {
+    const pendingRows = records.filter((r) => r.field === 'Status' && PENDING_RE.test(r.newValue || ''));
+    const lastPending = pendingRows.length ? Date.parse(pendingRows[pendingRows.length - 1].time) : null;
     const takenRow = records.find((r) => r.field !== 'Status' && USER_ID_RE.test(r.newValue || ''));
     let taken = null;
     if (takenRow) {
@@ -22,7 +25,20 @@
     const pendingRow = records.find((r) => r.field === 'Status' && PENDING_RE.test(r.newValue || '')
       && (!taken || Date.parse(r.time) >= taken.time));
     const pending = pendingRow ? { time: Date.parse(pendingRow.time), by: pendingRow.by || '' } : null;
-    return { taken, pending };
+    return { taken, pending, lastPending };
+  }
+
+  // ID кейса строки таблицы: ключ строки, data-recordid или ссылка на запись (/lightning/r/Case/500…/view)
+  const CASE_ID_RE = /^500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
+  const CASE_ID_IN_TEXT_RE = /\b(500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)\b/;
+  function rowCaseId(tr, key) {
+    if (CASE_ID_RE.test(key || '')) return key;
+    for (const node of XT.dom.deepQueryAll('[data-recordid], a[href]', tr)) {
+      const value = node.getAttribute('data-recordid') || node.getAttribute('href') || '';
+      const m = value.match(CASE_ID_IN_TEXT_RE);
+      if (m) return m[1];
+    }
+    return null;
   }
 
   // 3m, 2h 15m, 1d 4h
@@ -38,7 +54,9 @@
     { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   XT.caseHistory = {
-    isCaseId: (id) => /^500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(id || ''),
+    isCaseId: (id) => CASE_ID_RE.test(id || ''),
+    rowCaseId,
+    BATCH: 100,   // кейсов в одном запросе (background принимает до 200)
 
     // caseIds → { caseId: { taken, pending } }
     async fetch(caseIds) {

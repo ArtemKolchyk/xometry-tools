@@ -164,7 +164,7 @@ async function sfCaseHistory(pageUrl, caseIds) {
   if (!ids.length) return [];
 
   const apiOrigin = `https://${m[1]}.my.salesforce.com`;
-  const noAccess = 'No Salesforce API access: grant it in the popup (SF queue → Case timeline)';
+  const noAccess = 'No Salesforce API access: grant it in the popup (SF queue → Salesforce API access)';
   if (!chrome.cookies) throw new Error(noAccess);
   const sid = await chrome.cookies.get({ url: apiOrigin, name: 'sid' }).catch(() => null);
   if (!sid) throw new Error(`${noAccess}, or log in to Salesforce again`);
