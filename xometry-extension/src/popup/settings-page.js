@@ -16,6 +16,8 @@ const SYNC_SECTIONS = [
 ];
 
 const CHANGELOG = [
+  ['0.7.3', 'QC Center quick verdict: shows whether the Xometry CofC is stamped; submitting ACCEPT without '
+    + 'the stamp asks to confirm.'],
   ['0.7.2', 'Case ERP panel: real Partner Shipping Block state; switch it right from the Case with the new '
     + '"Shipping block toggle" (off by default, asks to confirm). Text highlighter: rules can be limited to case lists '
     + '(queue) or to an open Case.'],

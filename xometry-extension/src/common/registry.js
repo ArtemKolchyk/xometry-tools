@@ -167,7 +167,8 @@
       id: 'qcc-quick-verdict',
       site: 'qcc',
       name: 'Quick verdict',
-      description: 'Accept All / Reject All buttons in the Submit Verdict dialog: fill status, reason and quantities.',
+      description: 'Accept All / Reject All buttons in the Submit Verdict dialog: fill status, reason and quantities. '
+        + 'Shows whether the Xometry CofC is stamped; Submit with ACCEPT and no stamp asks to confirm.',
     },
     {
       id: 'erp-placeholder',

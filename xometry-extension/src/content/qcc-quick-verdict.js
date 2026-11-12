@@ -158,6 +158,76 @@
     }
   }
 
+  // ---------- штамп на Xometry CofC ----------
+  // В списке Validation Items у документа «Xometry Certificate of Conformance…» есть [data-testid=certificate-stamp-button]:
+  // со штампом это меню с текстом «Stamped COC», без штампа — круглая кнопка-иконка без текста.
+  // «Partner to Xometry CoC» — другой документ, его не проверяем.
+  const COC_NAME_RE = /^Xometry Certificate of Conformance/i;
+  const STAMPED_RE = /stamped\s*coc/i;
+
+  // { state: 'stamped' | 'missing' | 'none', names: [непроштампованные] }; одинаковые документы считаются один раз,
+  // при нескольких CofC достаточно, чтобы был проштампован хотя бы один
+  function cocStatus() {
+    const docs = new Map();   // имя → проштампован
+    document.querySelectorAll('.ant-collapse-header').forEach((header) => {
+      const identity = header.querySelector('[class*="documentSummaryIdentity"]');
+      const name = norm((identity || header).textContent);
+      if (!COC_NAME_RE.test(name)) return;
+      const stamp = header.querySelector('[data-testid="certificate-stamp-button"]');
+      const stamped = !!stamp && STAMPED_RE.test(stamp.textContent);
+      docs.set(name, docs.get(name) || stamped);
+    });
+    if (!docs.size) return { state: 'none', names: [] };
+    if ([...docs.values()].some(Boolean)) return { state: 'stamped', names: [] };
+    return { state: 'missing', names: [...docs.keys()] };
+  }
+
+  const STATUS_VIEW = {
+    stamped: { text: '✓ Xometry CofC is stamped', color: '#237804', bg: '#f6ffed', border: '#b7eb8f' },
+    missing: { text: '⚠ Xometry CofC is not stamped', color: '#a8071a', bg: '#fff1f0', border: '#ffa39e' },
+    none: { text: 'No Xometry CofC on the page: stamp not checked', color: '#595959', bg: '#fafafa', border: '#d9d9d9' },
+  };
+
+  // Меняем DOM, только если что-то изменилось: иначе MutationObserver крутился бы по кругу
+  function updateStatus(bar) {
+    const box = bar.querySelector(`.${BAR_CLASS}-status`);
+    if (!box) return;
+    const s = cocStatus();
+    const view = STATUS_VIEW[s.state];
+    const title = s.names.length ? `Not stamped: ${s.names.join(', ')}` : '';
+    if (box.dataset.state === s.state && box.title === title) return;
+    box.dataset.state = s.state;
+    box.textContent = view.text;
+    box.title = title;
+    Object.assign(box.style, { color: view.color, background: view.bg, borderColor: view.border });
+  }
+
+  // Что выбрано в поле Inspection status диалога: 'ACCEPT', 'REJECT' или ''
+  function selectedStatus(modal) {
+    const field = getField(modal, 'Inspection status');
+    const item = field && field.querySelector('.ant-select-selection-item');
+    return item ? norm(item.getAttribute('title') || item.textContent).toUpperCase() : '';
+  }
+
+  // Submit в диалоге с ACCEPT при непроштампованном CofC: сначала подтверждение.
+  // Ловим на capture у window — раньше обработчиков React; «Submit anyway» повторяет клик в обход проверки.
+  let bypass = false;
+  function onSubmitClick(event) {
+    if (bypass) return;
+    const button = event.composedPath().find((el) => el.tagName === 'BUTTON');
+    if (!button || !/^submit\b/i.test(norm(button.textContent))) return;
+    const modal = button.closest('.ant-modal-content, .ant-modal, [role="dialog"]');
+    if (!modal || !modal.querySelector(`.${BAR_CLASS}`)) return;   // только диалог вердикта
+    if (selectedStatus(modal) !== 'ACCEPT') return;
+    if (cocStatus().state !== 'missing') return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!window.confirm('The Xometry Certificate of Conformance is not stamped.\n\nSubmit the ACCEPT verdict anyway?')) return;
+    bypass = true;
+    try { button.click(); } finally { bypass = false; }
+  }
+
   // ---------- кнопки ----------
   function makeButton(text, color, onClick) {
     const b = document.createElement('button');
@@ -192,13 +262,24 @@
 
       const bar = document.createElement('div');
       bar.className = BAR_CLASS;
-      Object.assign(bar.style, { display: 'flex', gap: '8px', marginBottom: '12px' });
-      bar.append(
+      Object.assign(bar.style, { marginBottom: '12px' });
+      const row = document.createElement('div');
+      Object.assign(row.style, { display: 'flex', gap: '8px' });
+      row.append(
         makeButton('Accept All', '#52c41a', () => fill(modal, 'accept')),
         makeButton('Reject All', '#ff4d4f', () => fill(modal, 'reject'))
       );
+      // Штамп на Xometry CofC (см. cocStatus)
+      const status = document.createElement('div');
+      status.className = `${BAR_CLASS}-status`;
+      Object.assign(status.style, {
+        marginTop: '8px', padding: '4px 10px', border: '1px solid', borderRadius: '4px',
+        fontSize: '13px', fontWeight: '600',
+      });
+      bar.append(row, status);
       formItem.parentElement.insertBefore(bar, formItem);
     }
+    document.querySelectorAll(`.${BAR_CLASS}`).forEach(updateStatus);
   }
 
   let scheduled = false;
@@ -213,11 +294,13 @@
 
   function start() {
     observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.addEventListener('click', onSubmitClick, true);
     inject();
   }
 
   function stop() {
     observer.disconnect();
+    window.removeEventListener('click', onSubmitClick, true);
     document.querySelectorAll(`.${BAR_CLASS}`).forEach((bar) => bar.remove());
   }
 
