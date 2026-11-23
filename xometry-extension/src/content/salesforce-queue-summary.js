@@ -196,6 +196,7 @@
   // ---------------- Плашка ----------------
   const bar = document.createElement('div');
   bar.id = BAR_ID;
+  bar.setAttribute('data-xt-header-bar', '');   // плашки расширения в шапке (и Staff stats справа) не мешают раскладке
   Object.assign(bar.style, {
     position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: '5',
   });
@@ -368,6 +369,11 @@
   // ---------------- Место в шапке ----------------
   // Шапка списка — сетка на всю ширину, поэтому меряем не блоки, а их содержимое: текст (через Range)
   // и кнопки/иконки. Всё, что левее середины шапки, — заголовок списка, правее — кнопки и поиск.
+  const inHeaderBar = (node) => {
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    return !!(el && el.closest('[data-xt-header-bar]'));
+  };
+
   function freeSpace(header) {
     const hr = header.getBoundingClientRect();
     const mid = hr.left + hr.width / 2;
@@ -382,12 +388,12 @@
     const walker = document.createTreeWalker(header, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (!node.textContent.trim() || bar.contains(node)) continue;
+      if (!node.textContent.trim() || inHeaderBar(node)) continue;
       range.selectNodeContents(node);
       take(range.getBoundingClientRect());
     }
     header.querySelectorAll('button, input, svg, img, a, lightning-icon, lightning-button-icon').forEach((el) => {
-      if (!bar.contains(el)) take(el.getBoundingClientRect());
+      if (!inHeaderBar(el)) take(el.getBoundingClientRect());
     });
     return { offset: left - hr.left + GAP, width: right - left - 2 * GAP };
   }

@@ -142,9 +142,11 @@ function erpGraphql(operation, id, fresh, value) {
 
 // Включён ли скрипт: тот же ключ, что у XT.settings (src/common/settings.js); пауза всех скриптов тоже учитывается.
 // Скрипты записи выключены по умолчанию, поэтому «нет записи» = выключен.
-async function scriptEnabled(scriptId) {
+// admin: true — ещё и админский режим должен быть включён (скрипты с admin: true в registry.js).
+async function scriptEnabled(scriptId, { admin = false } = {}) {
   const items = await chrome.storage.sync.get(['xt:enabled', 'xt:prefs']);
   const prefs = items['xt:prefs'] || {};
+  if (admin && !prefs.adminMode) return false;
   return !prefs.paused && !!(items['xt:enabled'] || {})[scriptId];
 }
 
@@ -157,21 +159,17 @@ const SF_CASE_ID_RE = /^500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 const SF_API_VERSION = 'v60.0';
 const SF_MAX_CASES = 200;
 
-async function sfCaseHistory(pageUrl, caseIds) {
+// SOQL-запрос со всеми страницами ответа (Salesforce отдаёт до 2000 строк за раз и nextRecordsUrl).
+// pageUrl — адрес вкладки-отправителя: по нему находим org и её API.
+async function sfQueryAll(pageUrl, soql) {
   const m = SF_LIGHTNING_HOST_RE.exec(new URL(pageUrl).hostname);
   if (!m) throw new Error('Not a Salesforce Lightning page');
-  const ids = (Array.isArray(caseIds) ? caseIds : []).filter((id) => SF_CASE_ID_RE.test(id)).slice(0, SF_MAX_CASES);
-  if (!ids.length) return [];
-
   const apiOrigin = `https://${m[1]}.my.salesforce.com`;
   const noAccess = 'No Salesforce API access: grant it in the popup (SF queue → Salesforce API access)';
   if (!chrome.cookies) throw new Error(noAccess);
   const sid = await chrome.cookies.get({ url: apiOrigin, name: 'sid' }).catch(() => null);
   if (!sid) throw new Error(`${noAccess}, or log in to Salesforce again`);
 
-  const soql = 'SELECT CaseId, Field, NewValue, CreatedDate, CreatedBy.Name FROM CaseHistory '
-    + `WHERE CaseId IN (${ids.map((id) => `'${id}'`).join(',')}) AND Field IN ('Owner', 'ownerAssignment', 'Status') `
-    + 'ORDER BY CreatedDate ASC';
   let url = `${apiOrigin}/services/data/${SF_API_VERSION}/query?q=${encodeURIComponent(soql)}`;
   const records = [];
   while (url) {
@@ -194,16 +192,64 @@ async function sfCaseHistory(pageUrl, caseIds) {
       throw new Error(`Salesforce API: ${(Array.isArray(body) && body[0] && body[0].message) || r.status}`);
     }
     const data = await r.json();
-    data.records.forEach((rec) => records.push({
-      caseId: rec.CaseId,
-      field: rec.Field,
-      newValue: rec.NewValue == null ? '' : String(rec.NewValue),
-      time: rec.CreatedDate,
-      by: (rec.CreatedBy && rec.CreatedBy.Name) || '',
-    }));
+    records.push(...data.records);
     url = data.nextRecordsUrl ? apiOrigin + data.nextRecordsUrl : null;
   }
   return records;
+}
+
+// Строка для SOQL в одинарных кавычках
+const soqlString = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+async function sfCaseHistory(pageUrl, caseIds) {
+  const ids = (Array.isArray(caseIds) ? caseIds : []).filter((id) => SF_CASE_ID_RE.test(id)).slice(0, SF_MAX_CASES);
+  if (!ids.length) return [];
+  const soql = 'SELECT CaseId, Field, NewValue, CreatedDate, CreatedBy.Name FROM CaseHistory '
+    + `WHERE CaseId IN (${ids.map((id) => `'${id}'`).join(',')}) AND Field IN ('Owner', 'ownerAssignment', 'Status') `
+    + 'ORDER BY CreatedDate ASC';
+  return (await sfQueryAll(pageUrl, soql)).map((rec) => ({
+    caseId: rec.CaseId,
+    field: rec.Field,
+    newValue: rec.NewValue == null ? '' : String(rec.NewValue),
+    time: rec.CreatedDate,
+    by: (rec.CreatedBy && rec.CreatedBy.Name) || '',
+  }));
+}
+
+// ---------------- Salesforce API: письма сотрудников (Staff stats, админский скрипт) ----------------
+// Отправленные (Status '3' = Sent, не черновики и не входящие) письма из кейсов, автор — один из сотрудников,
+// начиная с sinceMs (начало периода считает страница: месяц — по её часовому поясу); один запрос на всех.
+// Только при включённом скрипте и админском режиме.
+const STAFF_STATS_SCRIPT = 'sf-staff-stats';
+const STAFF_MAX_DAYS = 32;   // самый длинный период — с начала месяца
+const STAFF_MAX_USERS = 20;
+
+async function sfStaffEmails(pageUrl, userNames, sinceMs) {
+  if (!(await scriptEnabled(STAFF_STATS_SCRIPT, { admin: true }))) {
+    throw new Error('Staff stats: turn on admin mode and the script in the popup');
+  }
+  if (typeof sinceMs !== 'number' || !(sinceMs < Date.now()) || Date.now() - sinceMs > STAFF_MAX_DAYS * 86400000) {
+    throw new Error('Bad period');
+  }
+  const names = (Array.isArray(userNames) ? userNames : [])
+    .map((n) => (typeof n === 'string' ? n.trim() : ''))
+    .filter((n) => n && n.length <= 80)
+    .slice(0, STAFF_MAX_USERS);
+  if (!names.length) throw new Error('No employees');
+
+  const since = new Date(sinceMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const soql = 'SELECT ParentId, Parent.Subject, MessageDate, CreatedBy.Name FROM EmailMessage '
+    + `WHERE CreatedBy.Name IN (${names.map((n) => `'${soqlString(n)}'`).join(',')}) `
+    + `AND Incoming = false AND Status = '3' AND ParentId != null AND MessageDate >= ${since} `
+    + 'ORDER BY MessageDate ASC';
+  return (await sfQueryAll(pageUrl, soql))
+    .filter((rec) => SF_CASE_ID_RE.test(rec.ParentId || ''))
+    .map((rec) => ({
+      caseId: rec.ParentId,
+      caseSubject: (rec.Parent && rec.Parent.Subject) || '',
+      by: (rec.CreatedBy && rec.CreatedBy.Name) || '',
+      time: rec.MessageDate,
+    }));
 }
 
 // ---------------- Partner rating: пункт контекстного меню ----------------
@@ -254,6 +300,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Хост берём из вкладки-отправителя, а не из сообщения
   if (msg && msg.type === 'SF_CASE_HISTORY' && sender.url) {
     sfCaseHistory(sender.url, msg.caseIds).then(
+      (data) => sendResponse({ ok: true, data }),
+      (err) => sendResponse({ ok: false, error: err.message }),
+    );
+    return true;
+  }
+
+  if (msg && msg.type === 'SF_STAFF_EMAILS' && sender.url) {
+    sfStaffEmails(sender.url, msg.userNames, msg.sinceMs).then(
       (data) => sendResponse({ ok: true, data }),
       (err) => sendResponse({ ok: false, error: err.message }),
     );

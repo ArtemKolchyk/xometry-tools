@@ -126,6 +126,29 @@
       permissionsLabel: 'Salesforce API access',
     },
     {
+      id: 'sf-staff-stats',
+      site: 'sf-queue',
+      name: 'Staff stats',
+      description: 'Table to the right of Queue summary, one row per employee: cases with an email they sent, parts in '
+        + 'those jobs, average time per part (taken → Pending, as Case timeline) and emails sent. Periods: current '
+        + 'shift of each employee (emails with no break over 6 hours), last 7 days, this month.',
+      admin: true,
+      defaultEnabled: false,
+      // Строки таблицы: имена пользователей Salesforce, как в CreatedBy.Name (не больше 20)
+      employees: [
+        'Artem Kolchyk', 'Amy Bailey', 'Aleksandar Ostojić', 'Frank Toutloff', 'Dimitria Thomas',
+        'Timothy Hartlove', 'Lindsey Wong', 'Matthew Spoden', 'Yitzhak Ramirez',
+      ],
+      // period — day (смена) | week | month (с 1-го числа); collapsed — свёрнута до строки Team
+      options: { period: 'day', collapsed: false },
+      // Ссылка ↗ на плашке: отчёт Salesforce «VQC Cases with emails sent Today» с фильтром по владельцу
+      reportId: '00O3u0000078Mp8EAE',
+      histCachePrefix: 'staffhist1:',   // caseId → первый цикл кейса (взят → Pending), только завершённые
+      partsCachePrefix: 'staffparts1:',   // jobId → число деталей (line items)
+      permissions: { permissions: ['cookies'], origins: ['https://*.my.salesforce.com/*'] },
+      permissionsLabel: 'Salesforce API access',
+    },
+    {
       id: 'sf-case-erp-button',
       site: 'sf-queue',
       name: 'Open case job in ERP',

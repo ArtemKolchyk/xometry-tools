@@ -87,6 +87,17 @@ in the popup and can be turned on/off individually.
   when it went to Pending, time spent vs. the norm (7 min per part + 3 min, rounded up to 10). Reads `CaseHistory`
   via the Salesforce REST API with the `sid` cookie of `<org>.my.salesforce.com` (optional `cookies` +
   `*.my.salesforce.com` permissions, requested from the popup)
+- Staff stats (admin, `src/content/salesforce-staff-stats.js`): table to the right of Queue summary in the case list
+  header, one row per employee (registry `employees`, matched with `CreatedBy.Name`) plus a Team row. Periods:
+  Shift (per employee: their emails of the last 30 h with no break over 6 h, counted back from the latest — works
+  across time zones and night shifts; a Shift column shows first–last email), 7 days, This month (since the 1st,
+  local time). Columns: cases with a `VQC…` subject where they sent an email, parts (ERP line items, each
+  job once), average time per part (taken → Pending of the first cycle, only cases they took themselves; median in the
+  tooltip) and emails sent (`EmailMessage` Status Sent, not incoming). Taller than the header → hangs down over the
+  list; ▴ collapses it to the Team row. Emails of all employees come in one SOQL query from the background
+  (`SF_STAFF_EMAILS`, refused unless admin mode and the script are on); case history via `XT.caseHistory`.
+  Finished cases and part counts are cached for 45 days (`staffhist1:`, `staffparts1:`), so a month loads from ERP
+  only once. Header bars carry `data-xt-header-bar`, so their layout code ignores each other
 - `src/content/qcc-quick-verdict.js` — QC Center: Accept All / Reject All in the Submit Verdict dialog;
   port of `userscripts/QCC - Accept or Reject.txt`
 - `src/content/text-highlighter.js` — general script: highlights text via the CSS Custom Highlight API (no DOM changes)

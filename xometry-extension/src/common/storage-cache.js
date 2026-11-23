@@ -1,6 +1,6 @@
 // Кеш поверх chrome.storage.local с копией в памяти (Map).
 // get() синхронный, как GM_getValue: им пользуются при рендере. Перед первым get дождаться cache.ready.
-// Записи вида { time, ... }; записи старше PRUNE_AFTER_MS удаляются при загрузке.
+// Записи вида { time, ... }; записи старше PRUNE_AFTER_MS (или maxAgeMs кеша) удаляются при загрузке.
 (function () {
   'use strict';
   const XT = (globalThis.XT = globalThis.XT || {});
@@ -32,14 +32,15 @@
     return sharedRead;
   }
 
-  XT.createCache = function (prefix) {
+  // maxAgeMs — через сколько запись удаляется (по умолчанию неделя); для данных, которые не меняются, — дольше
+  XT.createCache = function (prefix, { maxAgeMs = PRUNE_AFTER_MS } = {}) {
     const memory = new Map();
 
     const ready = readAll().then((items) => {
       const stale = [];
       Object.entries(items).forEach(([key, value]) => {
         if (!key.startsWith(prefix)) return;
-        if (value && Date.now() - value.time > PRUNE_AFTER_MS) stale.push(key);
+        if (value && Date.now() - value.time > maxAgeMs) stale.push(key);
         else memory.set(key.slice(prefix.length), value);
       });
       if (stale.length) return chrome.storage.local.remove(stale);

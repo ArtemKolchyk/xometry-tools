@@ -89,6 +89,8 @@ function erpCard() {
     await XT.storage.clearByPrefix(XT.registry.getScript('sf-erp-sidebar').partnerCachePrefix);
     await XT.storage.clearByPrefix(XT.registry.getScript('sf-erp-sidebar').customerCachePrefix);
     await XT.storage.clearByPrefix(XT.registry.getScript('sf-case-timeline').cachePrefix);
+    await XT.storage.clearByPrefix(XT.registry.getScript('sf-staff-stats').histCachePrefix);
+    await XT.storage.clearByPrefix(XT.registry.getScript('sf-staff-stats').partsCachePrefix);
     const sfSite = XT.registry.sites.find((s) => s.id === 'sf-queue');
     await broadcast(sfSite, { type: 'XT_ACTION', scriptId: 'sf-erp-sidebar', action: 'clear-cache' });
     showMessage('ERP cache cleared');

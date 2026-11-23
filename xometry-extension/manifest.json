@@ -67,6 +67,7 @@
         "src/content/auto-refresh.js",
         "src/content/salesforce-erp-sidebar.js",
         "src/content/salesforce-queue-summary.js",
+        "src/content/salesforce-staff-stats.js",
         "src/content/salesforce-case-erp-button.js",
         "src/content/salesforce-case-info-panel.js",
         "src/content/salesforce-case-cc-check.js",
