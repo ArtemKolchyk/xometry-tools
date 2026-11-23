@@ -329,6 +329,82 @@ async function sfCreateDefaults(session, recordTypeId) {
   }
 }
 
+// Активные пользователи Salesforce с таким именем (не больше 2: важно только «ровно один»)
+const sfActiveUsers = (session, name) =>
+  sfQuery(session, `SELECT Id, Name FROM User WHERE Name = '${soqlString(name)}' AND IsActive = true LIMIT 2`);
+
+const cleanUserName = (v) => {
+  const name = String(v || '').trim();
+  if (name.length > 80) throw new Error('Name is too long');
+  return name;
+};
+
+// Для формы до создания: номер родительского кейса (в текст поста) и есть ли CM в Salesforce (для @упоминания)
+async function sfChildCaseInfo(pageUrl, parentId, cmName) {
+  await childCaseAllowed();
+  if (!SF_CASE_ID_RE.test(String(parentId || ''))) throw new Error('Parent case not found');
+  const name = cleanUserName(cmName);
+  const session = await sfSession(pageUrl);
+  const [parent] = await sfQuery(session, `SELECT CaseNumber FROM Case WHERE Id = '${parentId}'`);
+  const users = name ? await sfActiveUsers(session, name) : [];
+  return {
+    parentNumber: (parent && parent.CaseNumber) || '',
+    cm: { found: users.length === 1, many: users.length > 1 },
+  };
+}
+
+// Текст поста → сегменты Chatter: абзац на строку; первое «@Имя» — упоминание (mention: { name, id } | null)
+function chatterSegments(text, mention) {
+  const segments = [];
+  let mentioned = false;
+  text.replace(/\r/g, '').split('\n').forEach((line) => {
+    segments.push({ type: 'MarkupBegin', markupType: 'Paragraph' });
+    let rest = line;
+    const at = mention ? `@${mention.name}` : '';
+    const i = at && !mentioned ? rest.toLowerCase().indexOf(at.toLowerCase()) : -1;
+    if (i >= 0) {
+      if (i) segments.push({ type: 'Text', text: rest.slice(0, i) });
+      segments.push({ type: 'Mention', id: mention.id });
+      rest = rest.slice(i + at.length);
+      mentioned = true;
+    }
+    // Пустой абзац Chatter выбрасывает — пустую строку держит неразрывный пробел
+    if (rest || !line) segments.push({ type: 'Text', text: rest || ' ' });
+    segments.push({ type: 'MarkupEnd', markupType: 'Paragraph' });
+  });
+  return { segments, mentioned };
+}
+
+// Пост в ленту кейса, видимость Xometry Only (InternalUsers). → { ok, warning } | { ok: false, error }
+async function sfPostToCase(session, caseId, post) {
+  try {
+    const text = String(post.text || '').trim().slice(0, 5000);
+    if (!text) return { ok: false, error: 'empty text' };
+    const cmName = cleanUserName(post.cmName);
+    let mention = null;
+    let warning = '';
+    if (cmName) {
+      const users = await sfActiveUsers(session, cmName);
+      if (users.length === 1) mention = { name: cmName, id: users[0].Id };
+      else warning = `${cmName} ${users.length ? 'matches several Salesforce users' : 'not found in Salesforce'}: no @mention`;
+    }
+    const { segments, mentioned } = chatterSegments(text, mention);
+    if (mention && !mentioned) warning = `@${cmName} is not in the text: no @mention`;
+    await sfFetch(session, '/chatter/feed-elements', {
+      method: 'POST',
+      body: {
+        feedElementType: 'FeedItem',
+        subjectId: caseId,
+        visibility: 'InternalUsers',
+        body: { messageSegments: segments },
+      },
+    });
+    return { ok: true, warning };
+  } catch (e) {
+    return { ok: false, error: e.message.replace(/^Salesforce API: /, '') };
+  }
+}
+
 async function sfCreateChildCase(pageUrl, input) {
   await childCaseAllowed();
   const parentId = String(input && input.parentId || '');
@@ -358,6 +434,11 @@ async function sfCreateChildCase(pageUrl, input) {
     method: 'POST', body: fields, headers: { 'Sforce-Auto-Assign': 'FALSE' },
   });
 
+  // Посты — в созданный кейс и (отметка «отправлено CM») в родительский; не вышли — кейс всё равно остаётся
+  // (ошибка — в ответе, не исключением)
+  const post = input.post ? await sfPostToCase(session, created.id, input.post) : null;
+  const parentPost = input.parentPost ? await sfPostToCase(session, parentId, input.parentPost) : null;
+
   // Номер и владелец — как их сохранил Salesforce
   const [row] = await sfQuery(session, `SELECT CaseNumber, Owner.Name FROM Case WHERE Id = '${created.id}'`).catch(() => []);
   return {
@@ -365,6 +446,8 @@ async function sfCreateChildCase(pageUrl, input) {
     caseNumber: (row && row.CaseNumber) || '',
     owner: (row && row.Owner && row.Owner.Name) || '',
     recordType: rt.name,
+    post,
+    parentPost,
   };
 }
 
@@ -438,9 +521,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg && (msg.type === 'SF_CHILD_CASE_META' || msg.type === 'SF_CREATE_CHILD_CASE') && sender.url) {
-    const run = msg.type === 'SF_CHILD_CASE_META'
-      ? sfChildCaseMeta(sender.url)
+  if (msg && /^SF_(CHILD_CASE_META|CHILD_CASE_INFO|CREATE_CHILD_CASE)$/.test(msg.type) && sender.url) {
+    const run = msg.type === 'SF_CHILD_CASE_META' ? sfChildCaseMeta(sender.url)
+      : msg.type === 'SF_CHILD_CASE_INFO' ? sfChildCaseInfo(sender.url, msg.parentId, msg.cmName)
       : sfCreateChildCase(sender.url, msg.input);
     run.then(
       (data) => sendResponse({ ok: true, data }),

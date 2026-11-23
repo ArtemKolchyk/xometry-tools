@@ -17,7 +17,7 @@ Internal helper tools for the Xometry VQC team. Requires access to Xometry ERP.
 Salesforce:
 • ERP sidebar — job, partner and customer details next to Salesforce records
 • Open in ERP — opens the job of the current Case in ERP
-• Child case — creates a child case of the open Case from a short form (record type, job, subject)
+• Child case — creates a child case of the open Case from a short form (record type, job, subject) and posts a ready-to-edit message to the Case Manager
 • Quick text — your own buttons that insert prepared text into a Case
 • Partner rating — personal red / yellow / green marks for partners (right-click menu)
 • Partners and Customers — your own lists with notes; matching ERP cards get a warning sign
@@ -53,7 +53,7 @@ Adds productivity tools for the Xometry VQC team to Salesforce and Xometry QC Ce
 - `contextMenus`: `Adds a "Partner rating" item to the right-click menu on Salesforce pages so the user can mark a partner link or selected name.`
 - `declarativeNetRequestWithHostAccess`: `Sets the Origin and Referer headers to www.xometry.com on the extension's own requests to the Xometry ERP GraphQL endpoint, which rejects requests with an extension origin. The requests read job and order data and, only when the user turns on the "Shipping block toggle" tool and confirms each change, switch the job's Partner Shipping Block. One static rule, no other requests are changed.`
 - Host permissions (`api.xometry.com`, `www.xometry.com/api`, `www.xometry.com/graphql`): `The background service worker requests job, partner and customer data from Xometry ERP APIs with the user's own ERP session, to show it next to Salesforce records.`
-- Optional `cookies` + optional host `*.my.salesforce.com` (не запрашиваются при установке; кнопкой в popup — для Child case, Queue summary в режиме «from last Pending» и админских Case timeline / Staff stats): `Optional, requested only when the user grants it in the popup. Uses the user's own Salesforce session with the Salesforce API to load case history (owner and status changes) shown on Salesforce case lists, and — only when the user turns on the "Child case" tool, fills in its form and presses Create — to create a child case of the open case.`
+- Optional `cookies` + optional host `*.my.salesforce.com` (не запрашиваются при установке; кнопкой в popup — для Child case, Queue summary в режиме «from last Pending» и админских Case timeline / Staff stats): `Optional, requested only when the user grants it in the popup. Uses the user's own Salesforce session with the Salesforce API to load case history (owner and status changes) shown on Salesforce case lists, and — only when the user turns on the "Child case" tool, fills in its form and presses Create — to create a child case of the open case and post the user's message to its feed.`
 - Content scripts (`*.lightning.force.com`, `*.xometry.com/qc-center-app`): `The tools run only on Salesforce Lightning and Xometry QC Center pages, where they add buttons, a sidebar and highlights.`
 
 **Remote code:** No, I am not using remote code.

@@ -308,10 +308,17 @@
     render();
   }
 
+  // CM заказа текущей джобы (для поста формы Child case); '' — не загружен или не назначен
+  function currentCm() {
+    const e = currentJobId && data.get(currentJobId);
+    return (e && e.order && e.order.cm) || '';
+  }
+
   function render() {
     if (!currentJobId) return;
     const cc = childCase();
     const formShown = !!cc && cc.attach(panel, cc.caseIdFromPath());
+    if (formShown) cc.suggestCm(currentCm());   // CM догрузился из ERP уже при открытой форме
     panel.style.maxWidth = formShown ? PANEL_MAX_WITH_FORM : PANEL_MAX;
     const next = html(currentJobId, data.get(currentJobId));
     if (next === lastHtml) return;   // не перерисовываем зря: иначе сбрасывается прокрутка и подсказки
@@ -328,7 +335,7 @@
     if (act === 'notes') notesOpen = !notesOpen;
     if (act === 'staff') staffOpen = !staffOpen;
     if (act === 'ship' && currentJobId) { toggleShipping(currentJobId); return; }
-    if (act === 'child' && childCase()) childCase().toggle(childCase().caseIdFromPath(), currentJobId);
+    if (act === 'child' && childCase()) childCase().toggle(childCase().caseIdFromPath(), currentJobId, currentCm());
     render();
   });
 
