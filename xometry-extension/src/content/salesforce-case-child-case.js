@@ -7,8 +7,9 @@
 //   Please reply in the parent case <номер> when I can continue VQC.
 //   Thanks
 // и пост в родительский кейс: «Sent child case to CM @CM» (обе галочки включены по умолчанию).
-// CM — из плашки (ERP), @CM становится настоящим упоминанием, если в Salesforce ровно один активный
-// пользователь с таким именем. Create → background (SF_CREATE_CHILD_CASE): создаёт Case (владелец — создатель),
+// Люди для @упоминаний: CM (из плашки, ERP) и сколько угодно ещё — «+ Add person» (до 10). Все — в приветствии
+// шаблона; в обоих постах любое «@Имя» из списка становится настоящим упоминанием, если в Salesforce ровно один
+// активный пользователь с таким именем. Create → background (SF_CREATE_CHILD_CASE): создаёт Case (владелец — создатель),
 // затем публикует посты. Пост не вышел — кейс остаётся, форма говорит почему, текст остаётся в поле.
 // Своего места на странице у скрипта нет: плашка зовёт XT.childCase.buttonHtml(), attach() и suggestCm().
 // Форма — постоянный элемент, плашка его не перерисовывает: введённый текст и фокус не теряются.
@@ -61,11 +62,9 @@
         <b>Post to the child case</b><span style="${MUTED}">· Xometry Only</span>
       </label>
       <div data-f="post-box" style="margin-top:5px">
-        <div style="display:grid;grid-template-columns:auto 170px minmax(0,1fr);gap:5px 8px;align-items:center">
-          <label style="${MUTED}" title="Case Manager: @mentioned in the post">CM</label>
-          <input data-f="cm" maxlength="80" spellcheck="false" placeholder="Name for @mention" style="${INPUT}">
-          <span data-f="cmhint" style="min-width:0;font-size:11px;line-height:13px;white-space:normal"></span>
-        </div>
+        <div data-f="people" style="display:grid;grid-template-columns:auto 170px minmax(0,1fr) 16px;gap:5px 8px;align-items:center"></div>
+        <span data-f="add-person" role="button" title="Add one more person to @mention"
+          style="display:inline-block;margin-top:4px;color:#0176d3;cursor:pointer;user-select:none">+ Add person</span>
         <textarea data-f="post" rows="6" maxlength="5000" spellcheck="true"
           style="${INPUT};height:auto;width:100%;margin-top:5px;padding:5px 6px;line-height:1.4;resize:vertical"></textarea>
       </div>
@@ -86,8 +85,8 @@
   const subjectInput = $('subject');
   const postOn = $('post-on');
   const postBox = $('post-box');
-  const cmInput = $('cm');
-  const cmHint = $('cmhint');
+  const peopleBox = $('people');
+  const addPersonBtn = $('add-person');
   const postInput = $('post');
   const parentOn = $('parent-on');
   const parentInput = $('parent-post');
@@ -119,27 +118,61 @@
     subjectInput.value = autoSubject;
   }
 
+  // ---------------- Кого упомянуть ----------------
+  // Первая строка — CM (из плашки, без ×), «+ Add person» добавляет ещё строку (с ×).
+  // Строка: подпись, имя, подсказка проверки (✓ / ⚠), кнопка удаления. display:contents — ячейки в общей сетке.
+  const MAX_PEOPLE = 10;
+  const people = [];   // [{ row, input, hint }]
+  function addPerson(value = '', { isCm = false } = {}) {
+    const row = document.createElement('div');
+    row.style.display = 'contents';
+    row.innerHTML = `
+      <label style="${MUTED}" title="${isCm ? 'Case Manager' : 'One more person'}: @mentioned in the posts">${isCm ? 'CM' : '@'}</label>
+      <input maxlength="80" spellcheck="false" placeholder="Name for @mention" style="${INPUT}">
+      <span style="min-width:0;font-size:11px;line-height:13px;white-space:normal"></span>
+      ${isCm ? '<span></span>' : '<span data-remove role="button" title="Remove" style="cursor:pointer;color:#706e6b;font-size:15px;line-height:1;user-select:none">×</span>'}`;
+    const p = { row, input: row.querySelector('input'), hint: row.querySelector('span') };
+    p.input.value = value;
+    peopleBox.appendChild(row);
+    people.push(p);
+    addPersonBtn.style.display = people.length >= MAX_PEOPLE ? 'none' : '';
+    return p;
+  }
+  function removePerson(p) {
+    p.row.remove();
+    people.splice(people.indexOf(p), 1);
+    addPersonBtn.style.display = '';
+    onPeopleChange();
+  }
+  const cmPerson = addPerson('', { isCm: true });
+  const cmInput = cmPerson.input;
+  // Все непустые имена, без повторов (первое — CM, если указан)
+  const allNames = () => [...new Set(people.map((p) => p.input.value.trim()).filter(Boolean))];
+
   // ---------------- Пост ----------------
   // Шаблон: вторая строка — для информации CM (туда ставится курсор)
-  const greeting = (cm) => (cm ? `Hi @${cm},` : 'Hi,');
-  const postTemplate = (cm) => `${greeting(cm)}\n\n\nPlease reply in the parent case ${parentNumber || '[parent case]'} `
+  const greeting = (names) => (names.length ? `Hi ${names.map((n) => `@${n}`).join(', ')},` : 'Hi,');
+  const postTemplate = (names) => `${greeting(names)}\n\n\nPlease reply in the parent case ${parentNumber || '[parent case]'} `
     + 'when I can continue VQC.\nThanks';
 
-  // Пост в родительский кейс — одна строка
+  // Пост в родительский кейс — одна строка, упоминает только CM (других можно вписать: @Имя из списка — тоже упоминание)
   const parentTemplate = (cm) => `Sent child case to CM${cm ? ` @${cm}` : ''}`;
 
-  // Пока текст не правили, он следует за CM и номером кейса. Правили — меняем только @старый CM на @нового.
+  // Пока текст не правили, он следует за списком людей и номером кейса.
+  // Правили — меняем только приветствие (первая строка) и @старый CM в родительском посте.
   let autoPost = '';
   let autoParent = '';
+  let lastNames = [];
   let lastCm = '';
   function refreshPost() {
+    const names = allNames();
     const cm = cmInput.value.trim();
     if (postInput.value === autoPost) {
-      autoPost = postTemplate(cm);
+      autoPost = postTemplate(names);
       postInput.value = autoPost;
-    } else if (cm !== lastCm) {
-      const from = greeting(lastCm);
-      if (postInput.value.startsWith(from)) postInput.value = greeting(cm) + postInput.value.slice(from.length);
+    } else if (names.join('|') !== lastNames.join('|')) {
+      const from = greeting(lastNames);
+      if (postInput.value.startsWith(from)) postInput.value = greeting(names) + postInput.value.slice(from.length);
     }
     if (parentInput.value === autoParent) {
       autoParent = parentTemplate(cm);
@@ -147,6 +180,7 @@
     } else if (cm !== lastCm && lastCm && parentInput.value.includes(`@${lastCm}`)) {
       parentInput.value = parentInput.value.replace(`@${lastCm}`, cm ? `@${cm}` : '').trim();
     }
+    lastNames = names;
     lastCm = cm;
   }
 
@@ -158,25 +192,26 @@
   }, 0));
 
   // CM — из плашки (ERP: caseManagerName); пока поле не правили, следует за плашкой.
-  // Проверка: в Salesforce ровно один активный пользователь с таким именем — тогда @CM будет упоминанием.
+  // Проверка каждого имени: в Salesforce ровно один активный пользователь с таким именем — тогда @Имя будет упоминанием.
   let autoCm = '';
   let infoToken = 0;
-  let cmTimer = null;
+  let peopleTimer = null;
   const cleanCm = (cm) => { const v = String(cm || '').trim(); return v === '—' || v === '-' ? '' : v; };
 
-  function setCmHint(text, color = '#706e6b') {
-    cmHint.style.color = color;
-    cmHint.textContent = text;
+  function setHint(p, text, color = '#706e6b') {
+    p.hint.style.color = color;
+    p.hint.textContent = text;
   }
 
-  // Номер родительского кейса и проверка CM — одним запросом
+  // Номер родительского кейса и проверка всех имён — одним запросом
   function loadInfo() {
-    clearTimeout(cmTimer);
+    clearTimeout(peopleTimer);
     if (!meta || !openCaseId) return;
-    const name = cmInput.value.trim();
+    const names = allNames();
     const token = ++infoToken;
-    setCmHint(name ? 'Checking in Salesforce…' : 'No CM: the post will start with "Hi,"');
-    XT.sendToBackground({ type: 'SF_CHILD_CASE_INFO', parentId: openCaseId, cmName: name })
+    people.forEach((p) => setHint(p, p.input.value.trim() ? 'Checking…'
+      : p === cmPerson ? 'No CM: the post will start with "Hi,"' : ''));
+    XT.sendToBackground({ type: 'SF_CHILD_CASE_INFO', parentId: openCaseId, names })
       .then((r) => {
         if (token !== infoToken) return;
         if (r.parentNumber && r.parentNumber !== parentNumber) {
@@ -184,18 +219,31 @@
           const untouched = postInput.value === autoPost;
           parentNumber = r.parentNumber;
           if (untouched) {
-            autoPost = postTemplate(cmInput.value.trim());
+            autoPost = postTemplate(allNames());
             postInput.value = autoPost;
           } else {
             postInput.value = postInput.value.replace('[parent case]', parentNumber);
           }
         }
-        if (!name) return;
-        if (r.cm.found) setCmHint('✓ Will be @mentioned', '#2e844a');
-        else setCmHint(r.cm.many ? '⚠ Several users with this name: plain text, no @mention'
-          : '⚠ Not found in Salesforce: plain text, no @mention', '#a96404');
+        people.forEach((p) => {
+          const u = r.users[p.input.value.trim()];
+          if (!u) return;
+          if (u.found) setHint(p, '✓ Will be @mentioned', '#2e844a');
+          else setHint(p, u.many ? '⚠ Several users with this name: no @mention'
+            : '⚠ Not found in Salesforce: no @mention', '#a96404');
+        });
       })
-      .catch((err) => { if (token === infoToken) setCmHint(`⚠ ${err.message}`, '#8e030f'); });
+      .catch((err) => {
+        if (token === infoToken) people.forEach((p) => p.input.value.trim() && setHint(p, `⚠ ${err.message}`, '#8e030f'));
+      });
+  }
+
+  // Имена правят: текст постов — сразу, проверка в Salesforce — когда перестали печатать
+  function onPeopleChange() {
+    refreshPost();
+    clearTimeout(peopleTimer);
+    people.forEach((p) => setHint(p, ''));
+    peopleTimer = setTimeout(loadInfo, 600);
   }
 
   function setCm(cm) {
@@ -219,7 +267,9 @@
     const ready = !!meta && !saving && !justCreated;
     createBtn.disabled = !ready;
     createBtn.style.opacity = ready ? '1' : '.6';
-    [jobInput, subjectInput, postOn, cmInput, postInput, parentOn, parentInput].forEach((el) => { el.disabled = saving; });
+    [jobInput, subjectInput, postOn, postInput, parentOn, parentInput, ...people.map((p) => p.input)]
+      .forEach((el) => { el.disabled = saving; });
+    addPersonBtn.style.pointerEvents = saving ? 'none' : '';
     rtSelect.disabled = !meta || saving;
   }
 
@@ -269,7 +319,6 @@
       parentInput.focus();
       return;
     }
-    const cmName = cmInput.value.trim();
     saving = true;
     updateControls();
     setStatus('Creating…');
@@ -278,8 +327,10 @@
         type: 'SF_CREATE_CHILD_CASE',
         input: {
           parentId: openCaseId, recordTypeId: rtSelect.value, jobId, subject,
-          post: postOn.checked ? { text: postText, cmName } : null,
-          parentPost: parentOn.checked ? { text: parentText, cmName } : null,
+          // Люди для @упоминаний — общие для обоих постов: в тексте упоминанием становится каждое «@Имя» из списка
+          mentions: allNames(),
+          post: postOn.checked ? { text: postText } : null,
+          parentPost: parentOn.checked ? { text: parentText } : null,
         },
       });
       justCreated = true;
@@ -320,20 +371,25 @@
   });
   postOn.addEventListener('change', syncPostBox);
   parentOn.addEventListener('change', syncPostBox);
-  // CM правят руками: текст поста — сразу, проверка в Salesforce — когда перестали печатать
-  cmInput.addEventListener('input', () => {
-    refreshPost();
-    clearTimeout(cmTimer);
-    setCmHint('');
-    cmTimer = setTimeout(loadInfo, 600);
+  // Имена правят руками (строки добавляются — слушаем весь список)
+  peopleBox.addEventListener('input', onPeopleChange);
+  peopleBox.addEventListener('click', (event) => {
+    const x = event.target.closest('[data-remove]');
+    const p = x && people.find((q) => q.row.contains(x));
+    if (p && !saving) removePerson(p);
+  });
+  addPersonBtn.addEventListener('click', () => {
+    if (saving || people.length >= MAX_PEOPLE) return;
+    addPerson().input.focus();
   });
   // Любая правка после создания — это уже новый кейс: Create снова доступен
-  [jobInput, subjectInput, postOn, cmInput, postInput, parentOn, parentInput].forEach((el) => el.addEventListener(
-    el.type === 'checkbox' ? 'change' : 'input', () => {
-      if (!justCreated) return;
-      justCreated = false;
-      updateControls();
-    }));
+  const unlock = () => {
+    if (!justCreated) return;
+    justCreated = false;
+    updateControls();
+  };
+  [jobInput, subjectInput, postOn, postInput, parentOn, parentInput, peopleBox].forEach((el) => el.addEventListener(
+    el.type === 'checkbox' ? 'change' : 'input', unlock));
   $('cancel').addEventListener('click', () => { close(); notify(); });
   // Клавиши в полях не должны доходить до горячих клавиш Salesforce; Enter в строке — создать, Esc — закрыть.
   // В тексте поста Enter — новая строка.
@@ -394,6 +450,11 @@
       autoParent = '';
       parentInput.value = '';
       lastCm = '';
+      lastNames = [];
+      // Новый кейс — снова только CM: добавленные люди прошлого кейса убираем
+      people.slice(1).forEach((p) => { p.row.remove(); });
+      people.length = 1;
+      addPersonBtn.style.display = '';
       setCm(cm);
       setStatus('');
       fillRecordTypes();

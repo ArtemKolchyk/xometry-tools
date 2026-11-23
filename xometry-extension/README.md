@@ -61,9 +61,11 @@ in the popup and can be turned on/off individually.
   prefilled with the job number and following the Job field until edited; after Create the button stays disabled
   until a field changes, so a second Enter makes no duplicate). The owner is whoever creates it. «Post to the child
   case» (on by default): an editable, almost ready Chatter post (Hi @CM, info, «Please reply in the parent case N…»);
-  CM comes from the panel, the parent case number from `SF_CHILD_CASE_INFO` (which also checks the CM is exactly one
-  active User). After the case is created the post goes to its feed (`/chatter/feed-elements`, InternalUsers =
-  Xometry Only), the first «@CM» becoming a real mention; a failed post keeps the case and the text. «Post to the
+  CM comes from the panel, the parent case number from `SF_CHILD_CASE_INFO` (which also checks each name is exactly
+  one active User). After the case is created the post goes to its feed (`/chatter/feed-elements`, InternalUsers =
+  Xometry Only); a failed post keeps the case and the text. People to @mention: the CM plus «+ Add person» rows
+  (up to 10), all in the greeting; in both posts every «@Name» of the list becomes a real mention (longest names
+  first, case-insensitive). «Post to the
   parent case» (on by default): one line «Sent child case to CM @CM», posted to the open case the same way. The background
   (`SF_CREATE_CHILD_CASE`) creates the Case via the Salesforce REST API: `ParentId` = the open case, Job = lookup found
   by job number (the Case field labeled «Job», from describe), other fields = the New Case form defaults of the record

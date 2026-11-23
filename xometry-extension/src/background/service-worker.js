@@ -333,63 +333,79 @@ async function sfCreateDefaults(session, recordTypeId) {
 const sfActiveUsers = (session, name) =>
   sfQuery(session, `SELECT Id, Name FROM User WHERE Name = '${soqlString(name)}' AND IsActive = true LIMIT 2`);
 
-const cleanUserName = (v) => {
-  const name = String(v || '').trim();
-  if (name.length > 80) throw new Error('Name is too long');
-  return name;
-};
+const MAX_MENTIONS = 10;   // людей в форме; Chatter допускает до 25 упоминаний в посте
 
-// Для формы до создания: номер родительского кейса (в текст поста) и есть ли CM в Salesforce (для @упоминания)
-async function sfChildCaseInfo(pageUrl, parentId, cmName) {
-  await childCaseAllowed();
-  if (!SF_CASE_ID_RE.test(String(parentId || ''))) throw new Error('Parent case not found');
-  const name = cleanUserName(cmName);
-  const session = await sfSession(pageUrl);
-  const [parent] = await sfQuery(session, `SELECT CaseNumber FROM Case WHERE Id = '${parentId}'`);
-  const users = name ? await sfActiveUsers(session, name) : [];
-  return {
-    parentNumber: (parent && parent.CaseNumber) || '',
-    cm: { found: users.length === 1, many: users.length > 1 },
-  };
+// Список имён из формы: строки, без пустых и повторов, не длиннее 80 символов
+function cleanUserNames(list) {
+  const names = (Array.isArray(list) ? list : []).map((v) => String(v || '').trim()).filter(Boolean);
+  if (names.some((n) => n.length > 80)) throw new Error('Name is too long');
+  return [...new Set(names)].slice(0, MAX_MENTIONS);
 }
 
-// Текст поста → сегменты Chatter: абзац на строку; первое «@Имя» — упоминание (mention: { name, id } | null)
-function chatterSegments(text, mention) {
+// Имена → { name: { found, many, id } } (id — только если пользователь ровно один)
+async function sfResolveUsers(session, names) {
+  const entries = await Promise.all(names.map(async (name) => {
+    const users = await sfActiveUsers(session, name);
+    return [name, { found: users.length === 1, many: users.length > 1, id: users.length === 1 ? users[0].Id : null }];
+  }));
+  return Object.fromEntries(entries);
+}
+
+// Для формы до создания: номер родительского кейса (в текст поста) и кого из людей можно @упомянуть
+async function sfChildCaseInfo(pageUrl, parentId, names) {
+  await childCaseAllowed();
+  if (!SF_CASE_ID_RE.test(String(parentId || ''))) throw new Error('Parent case not found');
+  const list = cleanUserNames(names);
+  const session = await sfSession(pageUrl);
+  const [parent] = await sfQuery(session, `SELECT CaseNumber FROM Case WHERE Id = '${parentId}'`);
+  const resolved = await sfResolveUsers(session, list);
+  // В страницу — без Id пользователей: ей нужно только «найден / нет»
+  const users = Object.fromEntries(Object.entries(resolved).map(([n, u]) => [n, { found: u.found, many: u.many }]));
+  return { parentNumber: (parent && parent.CaseNumber) || '', users };
+}
+
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Текст поста → сегменты Chatter: абзац на строку; каждое «@Имя» из mentions ([{ name, id }]) — упоминание.
+// Длинные имена — первыми, чтобы «@Ann Lee» не перехватило «@Ann».
+function chatterSegments(text, mentions) {
+  const byName = new Map(mentions.map((m) => [m.name.toLowerCase(), m.id]));
+  const re = mentions.length
+    ? new RegExp(mentions.map((m) => `@${escapeRegExp(m.name)}`).sort((a, b) => b.length - a.length).join('|'), 'gi')
+    : null;
   const segments = [];
-  let mentioned = false;
   text.replace(/\r/g, '').split('\n').forEach((line) => {
     segments.push({ type: 'MarkupBegin', markupType: 'Paragraph' });
-    let rest = line;
-    const at = mention ? `@${mention.name}` : '';
-    const i = at && !mentioned ? rest.toLowerCase().indexOf(at.toLowerCase()) : -1;
-    if (i >= 0) {
-      if (i) segments.push({ type: 'Text', text: rest.slice(0, i) });
-      segments.push({ type: 'Mention', id: mention.id });
-      rest = rest.slice(i + at.length);
-      mentioned = true;
+    let last = 0;
+    if (re) {
+      re.lastIndex = 0;
+      for (let m = re.exec(line); m; m = re.exec(line)) {
+        if (m.index > last) segments.push({ type: 'Text', text: line.slice(last, m.index) });
+        segments.push({ type: 'Mention', id: byName.get(m[0].slice(1).toLowerCase()) });
+        last = m.index + m[0].length;
+      }
     }
+    const rest = line.slice(last);
     // Пустой абзац Chatter выбрасывает — пустую строку держит неразрывный пробел
     if (rest || !line) segments.push({ type: 'Text', text: rest || ' ' });
     segments.push({ type: 'MarkupEnd', markupType: 'Paragraph' });
   });
-  return { segments, mentioned };
+  return segments;
 }
 
-// Пост в ленту кейса, видимость Xometry Only (InternalUsers). → { ok, warning } | { ok: false, error }
-async function sfPostToCase(session, caseId, post) {
+// Пост в ленту кейса, видимость Xometry Only (InternalUsers). resolved — результат sfResolveUsers.
+// Предупреждение — только про «@Имя» в тексте, которое не стало упоминанием. → { ok, warning } | { ok: false, error }
+async function sfPostToCase(session, caseId, post, resolved) {
   try {
     const text = String(post.text || '').trim().slice(0, 5000);
     if (!text) return { ok: false, error: 'empty text' };
-    const cmName = cleanUserName(post.cmName);
-    let mention = null;
-    let warning = '';
-    if (cmName) {
-      const users = await sfActiveUsers(session, cmName);
-      if (users.length === 1) mention = { name: cmName, id: users[0].Id };
-      else warning = `${cmName} ${users.length ? 'matches several Salesforce users' : 'not found in Salesforce'}: no @mention`;
-    }
-    const { segments, mentioned } = chatterSegments(text, mention);
-    if (mention && !mentioned) warning = `@${cmName} is not in the text: no @mention`;
+    const mentions = Object.entries(resolved).filter(([, u]) => u.id).map(([name, u]) => ({ name, id: u.id }));
+    const lower = text.toLowerCase();
+    const warning = Object.entries(resolved)
+      .filter(([name, u]) => !u.id && lower.includes(`@${name.toLowerCase()}`))
+      .map(([name, u]) => `@${name} ${u.many ? 'matches several Salesforce users' : 'not found in Salesforce'}: no @mention`)
+      .join('; ');
+    const segments = chatterSegments(text, mentions);
     await sfFetch(session, '/chatter/feed-elements', {
       method: 'POST',
       body: {
@@ -436,8 +452,13 @@ async function sfCreateChildCase(pageUrl, input) {
 
   // Посты — в созданный кейс и (отметка «отправлено CM») в родительский; не вышли — кейс всё равно остаётся
   // (ошибка — в ответе, не исключением)
-  const post = input.post ? await sfPostToCase(session, created.id, input.post) : null;
-  const parentPost = input.parentPost ? await sfPostToCase(session, parentId, input.parentPost) : null;
+  // Люди для @упоминаний — один раз на оба поста; не нашли — посты всё равно уходят, имена обычным текстом
+  let resolved = {};
+  if (input.post || input.parentPost) {
+    resolved = await sfResolveUsers(session, cleanUserNames(input.mentions)).catch(() => ({}));
+  }
+  const post = input.post ? await sfPostToCase(session, created.id, input.post, resolved) : null;
+  const parentPost = input.parentPost ? await sfPostToCase(session, parentId, input.parentPost, resolved) : null;
 
   // Номер и владелец — как их сохранил Salesforce
   const [row] = await sfQuery(session, `SELECT CaseNumber, Owner.Name FROM Case WHERE Id = '${created.id}'`).catch(() => []);
@@ -523,7 +544,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg && /^SF_(CHILD_CASE_META|CHILD_CASE_INFO|CREATE_CHILD_CASE)$/.test(msg.type) && sender.url) {
     const run = msg.type === 'SF_CHILD_CASE_META' ? sfChildCaseMeta(sender.url)
-      : msg.type === 'SF_CHILD_CASE_INFO' ? sfChildCaseInfo(sender.url, msg.parentId, msg.cmName)
+      : msg.type === 'SF_CHILD_CASE_INFO' ? sfChildCaseInfo(sender.url, msg.parentId, msg.names)
       : sfCreateChildCase(sender.url, msg.input);
     run.then(
       (data) => sendResponse({ ok: true, data }),
