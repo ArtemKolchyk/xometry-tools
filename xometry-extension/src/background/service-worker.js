@@ -159,9 +159,8 @@ const SF_CASE_ID_RE = /^500[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 const SF_API_VERSION = 'v60.0';
 const SF_MAX_CASES = 200;
 
-// SOQL-запрос со всеми страницами ответа (Salesforce отдаёт до 2000 строк за раз и nextRecordsUrl).
-// pageUrl — адрес вкладки-отправителя: по нему находим org и её API.
-async function sfQueryAll(pageUrl, soql) {
+// Сессия API org-а вкладки-отправителя (pageUrl): { apiOrigin, token }
+async function sfSession(pageUrl) {
   const m = SF_LIGHTNING_HOST_RE.exec(new URL(pageUrl).hostname);
   if (!m) throw new Error('Not a Salesforce Lightning page');
   const apiOrigin = `https://${m[1]}.my.salesforce.com`;
@@ -169,34 +168,55 @@ async function sfQueryAll(pageUrl, soql) {
   if (!chrome.cookies) throw new Error(noAccess);
   const sid = await chrome.cookies.get({ url: apiOrigin, name: 'sid' }).catch(() => null);
   if (!sid) throw new Error(`${noAccess}, or log in to Salesforce again`);
+  return { apiOrigin, token: sid.value };
+}
 
-  let url = `${apiOrigin}/services/data/${SF_API_VERSION}/query?q=${encodeURIComponent(soql)}`;
+// Запрос к REST API: path — от /services/data/vXX (или полный путь /services/…); body — объект (JSON)
+async function sfFetch(session, path, { method = 'GET', body, headers = {} } = {}) {
+  const url = session.apiOrigin + (path.startsWith('/services/') ? path : `/services/data/${SF_API_VERSION}${path}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        Accept: 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? 'Salesforce API timed out' : 'Network error');
+  } finally {
+    clearTimeout(timer);
+  }
+  if (r.status === 401) throw new Error('Salesforce session expired: reload the Salesforce tab');
+  if (!r.ok) {
+    const err = await r.json().catch(() => null);
+    const first = Array.isArray(err) && err[0];
+    const fields = first && Array.isArray(first.fields) && first.fields.length ? ` (${first.fields.join(', ')})` : '';
+    throw new Error(`Salesforce API: ${(first && first.message) || r.status}${fields}`);
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+// SOQL-запрос со всеми страницами ответа (Salesforce отдаёт до 2000 строк за раз и nextRecordsUrl)
+async function sfQuery(session, soql) {
+  let path = `/query?q=${encodeURIComponent(soql)}`;
   const records = [];
-  while (url) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    let r;
-    try {
-      r = await fetch(url, {
-        headers: { Authorization: `Bearer ${sid.value}`, Accept: 'application/json' },
-        signal: controller.signal,
-      });
-    } catch (e) {
-      throw new Error(e.name === 'AbortError' ? 'Salesforce API timed out' : 'Network error');
-    } finally {
-      clearTimeout(timer);
-    }
-    if (r.status === 401) throw new Error('Salesforce session expired: reload the Salesforce tab');
-    if (!r.ok) {
-      const body = await r.json().catch(() => null);
-      throw new Error(`Salesforce API: ${(Array.isArray(body) && body[0] && body[0].message) || r.status}`);
-    }
-    const data = await r.json();
+  while (path) {
+    const data = await sfFetch(session, path);
     records.push(...data.records);
-    url = data.nextRecordsUrl ? apiOrigin + data.nextRecordsUrl : null;
+    path = data.nextRecordsUrl || null;
   }
   return records;
 }
+
+const sfQueryAll = async (pageUrl, soql) => sfQuery(await sfSession(pageUrl), soql);
 
 // Строка для SOQL в одинарных кавычках
 const soqlString = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -250,6 +270,102 @@ async function sfStaffEmails(pageUrl, userNames, sinceMs) {
       by: (rec.CreatedBy && rec.CreatedBy.Name) || '',
       time: rec.MessageDate,
     }));
+}
+
+// ---------------- Salesforce API: child case (Case ERP panel, скрипт sf-child-case) ----------------
+// Создаёт Case с ParentId открытого кейса: Record Type, Job (lookup по номеру джобы), Subject.
+// Остальные поля — значения по умолчанию формы New Case этого Record Type (Status, Priority, Case Origin…),
+// их отдаёт UI API. Владелец — создатель. Запись — только при включённом скрипте (доступен всем, не только в админском режиме).
+const CHILD_CASE_SCRIPT = 'sf-child-case';
+const CHILD_CASE_ADMIN_ONLY = false;   // как admin у скрипта в registry.js
+const SF_JOB_LABEL_RE = /^job$/i;     // подпись lookup-поля Job на Case
+const CASE_META_TTL_MS = 10 * 60000;
+let caseMetaCache = null;             // { origin, time, promise }
+
+// Record Types кейса, доступные пользователю, и lookup-поле Job: { recordTypes: [{ id, name }], jobField, jobObject }
+function sfCaseMeta(session) {
+  const c = caseMetaCache;
+  if (c && c.origin === session.apiOrigin && Date.now() - c.time < CASE_META_TTL_MS) return c.promise;
+  const promise = sfFetch(session, '/sobjects/Case/describe').then((d) => {
+    const job = d.fields.find((f) => f.type === 'reference' && f.createable && SF_JOB_LABEL_RE.test(String(f.label).trim()));
+    return {
+      recordTypes: d.recordTypeInfos.filter((r) => r.available && !r.master).map((r) => ({ id: r.recordTypeId, name: r.name })),
+      jobField: job ? job.name : null,
+      jobObject: job && job.referenceTo && /^\w+$/.test(job.referenceTo[0] || '') ? job.referenceTo[0] : null,
+    };
+  });
+  caseMetaCache = { origin: session.apiOrigin, time: Date.now(), promise };
+  promise.catch(() => { if (caseMetaCache && caseMetaCache.promise === promise) caseMetaCache = null; });
+  return promise;
+}
+
+async function childCaseAllowed() {
+  if (!(await scriptEnabled(CHILD_CASE_SCRIPT, { admin: CHILD_CASE_ADMIN_ONLY }))) {
+    throw new Error('Turn on "Child case" in the extension popup first');
+  }
+}
+
+async function sfChildCaseMeta(pageUrl) {
+  await childCaseAllowed();
+  const meta = await sfCaseMeta(await sfSession(pageUrl));
+  return { recordTypes: meta.recordTypes, hasJobField: !!meta.jobField };
+}
+
+// Значения по умолчанию формы New Case для Record Type (как в окне создания); без них — пусто
+async function sfCreateDefaults(session, recordTypeId) {
+  try {
+    const d = await sfFetch(session, `/ui-api/record-defaults/create/Case?recordTypeId=${recordTypeId}`);
+    const info = d.objectInfos && d.objectInfos.Case && d.objectInfos.Case.fields;
+    const fields = {};
+    Object.entries((d.record && d.record.fields) || {}).forEach(([name, f]) => {
+      const fi = info && info[name];
+      // Только простые значения (picklist, текст, галочки); lookup-и вроде Owner не трогаем
+      if (f && f.value != null && typeof f.value !== 'object' && fi && fi.createable && !fi.reference) fields[name] = f.value;
+    });
+    return fields;
+  } catch (e) {
+    console.warn('[XT] record defaults failed', e);
+    return {};
+  }
+}
+
+async function sfCreateChildCase(pageUrl, input) {
+  await childCaseAllowed();
+  const parentId = String(input && input.parentId || '');
+  const subject = String(input && input.subject || '').trim();
+  const jobId = String(input && input.jobId || '').trim().toUpperCase();
+  if (!SF_CASE_ID_RE.test(parentId)) throw new Error('Parent case not found');
+  if (!subject || subject.length > 255) throw new Error('Subject is required (up to 255 characters)');
+  if (jobId && !JOB_ID_RE.test(jobId)) throw new Error(`Not a job number: ${jobId}`);
+
+  const session = await sfSession(pageUrl);
+  const meta = await sfCaseMeta(session);
+  const rt = meta.recordTypes.find((r) => r.id === input.recordTypeId);
+  if (!rt) throw new Error('Record type is not available');
+
+  const fields = await sfCreateDefaults(session, rt.id);
+  Object.assign(fields, { RecordTypeId: rt.id, ParentId: parentId, Subject: subject });
+  if (jobId) {
+    if (!meta.jobField || !meta.jobObject) throw new Error('Job field not found on Case');
+    const rows = await sfQuery(session, `SELECT Id FROM ${meta.jobObject} WHERE Name = '${soqlString(jobId)}' LIMIT 2`);
+    if (!rows.length) throw new Error(`Job ${jobId} not found in Salesforce`);
+    if (rows.length > 1) throw new Error(`More than one Salesforce job named ${jobId}`);
+    fields[meta.jobField] = rows[0].Id;
+  }
+
+  // Владелец — тот, кто создаёт (как в форме New Case): правила назначения не запускаем, чтобы они его не сменили
+  const created = await sfFetch(session, '/sobjects/Case', {
+    method: 'POST', body: fields, headers: { 'Sforce-Auto-Assign': 'FALSE' },
+  });
+
+  // Номер и владелец — как их сохранил Salesforce
+  const [row] = await sfQuery(session, `SELECT CaseNumber, Owner.Name FROM Case WHERE Id = '${created.id}'`).catch(() => []);
+  return {
+    id: created.id,
+    caseNumber: (row && row.CaseNumber) || '',
+    owner: (row && row.Owner && row.Owner.Name) || '',
+    recordType: rt.name,
+  };
 }
 
 // ---------------- Partner rating: пункт контекстного меню ----------------
@@ -308,6 +424,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg && msg.type === 'SF_STAFF_EMAILS' && sender.url) {
     sfStaffEmails(sender.url, msg.userNames, msg.sinceMs).then(
+      (data) => sendResponse({ ok: true, data }),
+      (err) => sendResponse({ ok: false, error: err.message }),
+    );
+    return true;
+  }
+
+  // Окно выдачи доступа к Salesforce API (форма Child case): запросить разрешение можно только по клику
+  // на странице расширения, из content script нельзя
+  if (msg && msg.type === 'OPEN_SF_GRANT') {
+    chrome.windows.create({ url: chrome.runtime.getURL('src/popup/grant.html'), type: 'popup', width: 440, height: 260 })
+      .then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg && (msg.type === 'SF_CHILD_CASE_META' || msg.type === 'SF_CREATE_CHILD_CASE') && sender.url) {
+    const run = msg.type === 'SF_CHILD_CASE_META'
+      ? sfChildCaseMeta(sender.url)
+      : sfCreateChildCase(sender.url, msg.input);
+    run.then(
       (data) => sendResponse({ ok: true, data }),
       (err) => sendResponse({ ok: false, error: err.message }),
     );

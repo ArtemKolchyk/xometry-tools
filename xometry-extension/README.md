@@ -53,6 +53,18 @@ in the popup and can be turned on/off individually.
   `virtualInspection`: true = the partner cannot ship). The state is always shown; switching needs the separate
   `sf-case-shipping-block` script (off by default), asks to confirm and re-reads ERP afterwards. The background
   refuses the `UpdateVirtualInspection` mutation unless that script is on (and Pause all is off)
+- `src/content/salesforce-case-child-case.js` — Child case (for everyone, on by default). Without Salesforce API
+  access the form shows «Grant Salesforce access»: the background (`OPEN_SF_GRANT`) opens `src/popup/grant.html` in a
+  small window (`chrome.permissions.request` needs a click on an extension page); when the case tab gets focus back,
+  the form retries: «+ Child case» on the Case ERP panel
+  opens a form to the right of the panel (Record Type — Case Mgmt by default, Job prefilled from the case, Subject
+  prefilled with the job number and following the Job field until edited; after Create the button stays disabled
+  until a field changes, so a second Enter makes no duplicate). The owner is whoever creates it. The background
+  (`SF_CREATE_CHILD_CASE`) creates the Case via the Salesforce REST API: `ParentId` = the open case, Job = lookup found
+  by job number (the Case field labeled «Job», from describe), other fields = the New Case form defaults of the record
+  type (UI API `record-defaults`); assignment rules are off (`Sforce-Auto-Assign: FALSE`), so the creator stays the
+  owner, as in the New Case form. Refused unless the script is on.
+  The form is a persistent element after the panel content, so panel re-renders don't wipe what was typed
 - Timers of page scripts skip work in background tabs (`document.hidden`) and catch up on `visibilitychange`
 - `npm run check` (`check.js`) — `node --check` on every `src/**/*.js`
 - `src/content/salesforce-erp-sidebar.js` — port of `userscripts/salesforce-erp-sidebar.user.js`

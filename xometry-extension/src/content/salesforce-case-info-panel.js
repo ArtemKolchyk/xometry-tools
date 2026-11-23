@@ -116,7 +116,16 @@
     font: '12px/1.4 "Salesforce Sans", Arial, sans-serif',
     textAlign: 'left',
     overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'stretch',
   });
+  // Содержимое плашки перерисовывается целиком; форма Child case (XT.childCase) — справа от него и не стирается
+  const body = document.createElement('div');
+  Object.assign(body.style, { flex: '1 1 auto', minWidth: '0' });
+  panel.appendChild(body);
+  const PANEL_MAX = 'min(100%, 900px)';
+  const PANEL_MAX_WITH_FORM = 'min(100%, 1300px)';   // + столбец формы Child case
+  const childCase = () => (XT.childCase && XT.childCase.buttonHtml ? XT.childCase : null);
 
   let currentJobId = null;
   let notesOpen = false;
@@ -213,7 +222,8 @@
 
     const shippingBlock = shippingBlockHtml(jobId, job);
 
-    // CM — в верхней строке, после номера заказа; справа — Partner Shipping Block
+    // CM — в верхней строке, после номера заказа; справа — Partner Shipping Block и кнопка Child case
+    const cc = childCase();
     return `<div style="display:flex;gap:12px;align-items:stretch">
       <div style="min-width:0;flex:1 1 auto">${head}
       <div style="${ROW}"><span style="${LABEL}">Customer</span>${customerSign}${customer}</div>
@@ -222,6 +232,7 @@
       <div style="${ROW}"><span style="${LABEL}"></span>${staffToggle}</div>
       ${staffList}${warn}</div>
       ${shippingBlock}
+      ${cc ? cc.buttonHtml() : ''}
     </div>`;
   }
 
@@ -299,10 +310,13 @@
 
   function render() {
     if (!currentJobId) return;
+    const cc = childCase();
+    const formShown = !!cc && cc.attach(panel, cc.caseIdFromPath());
+    panel.style.maxWidth = formShown ? PANEL_MAX_WITH_FORM : PANEL_MAX;
     const next = html(currentJobId, data.get(currentJobId));
     if (next === lastHtml) return;   // не перерисовываем зря: иначе сбрасывается прокрутка и подсказки
     lastHtml = next;
-    panel.innerHTML = next;
+    body.innerHTML = next;
   }
 
   panel.addEventListener('click', (event) => {
@@ -314,6 +328,7 @@
     if (act === 'notes') notesOpen = !notesOpen;
     if (act === 'staff') staffOpen = !staffOpen;
     if (act === 'ship' && currentJobId) { toggleShipping(currentJobId); return; }
+    if (act === 'child' && childCase()) childCase().toggle(childCase().caseIdFromPath(), currentJobId);
     render();
   });
 
@@ -378,5 +393,6 @@
 
   XT.watchlist.watch((lists) => { watch = lists; lastHtml = ''; render(); });
   XT.settings.watch(SHIP_SCRIPT_ID, (on) => { shipToggleOn = on; render(); });
+  if (childCase()) childCase().onChange = render;
   XT.settings.watch(SCRIPT_ID, (enabled) => (enabled ? start() : stop()));
 })();

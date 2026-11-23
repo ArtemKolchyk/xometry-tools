@@ -170,6 +170,17 @@
       defaultEnabled: false,
     },
     {
+      id: 'sf-child-case',
+      site: 'sf-queue',
+      name: 'Child case',
+      description: 'On the Case ERP panel: + Child case opens a short form (record type — Case Mgmt by default, '
+        + 'job, subject) and creates a child case of the open case in Salesforce. Other fields get the defaults of '
+        + 'the New Case form. Works together with the Case ERP panel.',
+      defaultRecordType: 'Case Mgmt',
+      permissions: { permissions: ['cookies'], origins: ['https://*.my.salesforce.com/*'] },
+      permissionsLabel: 'Salesforce API access',
+    },
+    {
       id: 'sf-case-cc-check',
       site: 'sf-queue',
       name: 'Additional VQC Email check',
