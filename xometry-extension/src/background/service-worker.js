@@ -275,7 +275,7 @@ async function sfStaffEmails(pageUrl, userNames, sinceMs) {
 // ---------------- Salesforce API: child case (Case ERP panel, скрипт sf-child-case) ----------------
 // Создаёт Case с ParentId открытого кейса: Record Type, Job (lookup по номеру джобы), Subject.
 // Остальные поля — значения по умолчанию формы New Case этого Record Type (Status, Priority, Case Origin…),
-// их отдаёт UI API. Владелец — создатель. Запись — только при включённом скрипте (доступен всем, не только в админском режиме).
+// их отдаёт UI API. Владелец — создатель; если в форме указан Owner — после постов он меняется на него. Запись — только при включённом скрипте (доступен всем, не только в админском режиме).
 const CHILD_CASE_SCRIPT = 'sf-child-case';
 const CHILD_CASE_ADMIN_ONLY = false;   // как admin у скрипта в registry.js
 const SF_JOB_LABEL_RE = /^job$/i;     // подпись lookup-поля Job на Case
@@ -445,7 +445,18 @@ async function sfCreateChildCase(pageUrl, input) {
     fields[meta.jobField] = rows[0].Id;
   }
 
-  // Владелец — тот, кто создаёт (как в форме New Case): правила назначения не запускаем, чтобы они его не сменили
+  // Новый владелец — проверяем ДО создания: ошибочное имя не должно оставить полусделанный кейс
+  const [ownerName] = cleanUserNames([input.ownerName]);
+  let newOwner = null;
+  if (ownerName) {
+    const users = await sfActiveUsers(session, ownerName);
+    if (users.length !== 1) {
+      throw new Error(`Owner ${ownerName}: ${users.length ? 'several Salesforce users with this name' : 'not found in Salesforce'}`);
+    }
+    newOwner = { id: users[0].Id, name: users[0].Name };
+  }
+
+  // Сначала владелец — тот, кто создаёт (как в форме New Case): правила назначения не запускаем, чтобы они его не сменили
   const created = await sfFetch(session, '/sobjects/Case', {
     method: 'POST', body: fields, headers: { 'Sforce-Auto-Assign': 'FALSE' },
   });
@@ -460,15 +471,32 @@ async function sfCreateChildCase(pageUrl, input) {
   const post = input.post ? await sfPostToCase(session, created.id, input.post, resolved) : null;
   const parentPost = input.parentPost ? await sfPostToCase(session, parentId, input.parentPost, resolved) : null;
 
-  // Номер и владелец — как их сохранил Salesforce
+  // Номер и владелец — пока кейс ещё наш: после передачи другому создатель может потерять к нему доступ
   const [row] = await sfQuery(session, `SELECT CaseNumber, Owner.Name FROM Case WHERE Id = '${created.id}'`).catch(() => []);
+  let owner = (row && row.Owner && row.Owner.Name) || '';
+
+  // Смена владельца — последней, после постов (по той же причине). Не вышло — кейс и посты остаются
+  let ownerChange = null;
+  if (newOwner) {
+    try {
+      await sfFetch(session, `/sobjects/Case/${created.id}`, {
+        method: 'PATCH', body: { OwnerId: newOwner.id }, headers: { 'Sforce-Auto-Assign': 'FALSE' },
+      });
+      ownerChange = { ok: true };
+      owner = newOwner.name;
+    } catch (e) {
+      ownerChange = { ok: false, error: e.message.replace(/^Salesforce API: /, '') };
+    }
+  }
+
   return {
     id: created.id,
     caseNumber: (row && row.CaseNumber) || '',
-    owner: (row && row.Owner && row.Owner.Name) || '',
+    owner,
     recordType: rt.name,
     post,
     parentPost,
+    ownerChange,
   };
 }
 

@@ -14,7 +14,8 @@ Salesforce (`*.lightning.force.com`) and Xometry QC Center.
 - **Salesforce data.** Only if the user grants the optional Salesforce API access in the popup, the extension
   uses the user's own Salesforce session (`*.my.salesforce.com`) to read case history and emails sent from
   cases (for case timelines and statistics), and — when the user fills in the Child case form and presses
-  Create — to create a child case and post the user's message to its feed on the user's behalf. Results are only displayed to the user and kept in a
+  Create — to create a child case, post the user's message to its feed and, if the user chose a new owner, change
+  its owner, on the user's behalf. Results are only displayed to the user and kept in a
   local cache (`chrome.storage.local`).
 - **User settings.** On/off switches, highlight rules, quick-text buttons and similar preferences are
   stored in `chrome.storage.sync`, so Chrome may sync them between the user's own browsers.

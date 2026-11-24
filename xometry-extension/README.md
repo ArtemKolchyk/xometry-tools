@@ -59,7 +59,10 @@ in the popup and can be turned on/off individually.
   the form retries: «+ Child case» on the Case ERP panel
   opens a form to the right of the panel (Record Type — Case Mgmt by default, Job prefilled from the case, Subject
   prefilled with the job number and following the Job field until edited; after Create the button stays disabled
-  until a field changes, so a second Enter makes no duplicate). The owner is whoever creates it. «Post to the child
+  until a field changes, so a second Enter makes no duplicate). The case is created with its creator as owner; «Owner»
+  (on by default, prefilled with the CM and following it until edited) changes the owner after the posts, last,
+  because the creator may lose access to a case owned by someone else. The owner name is checked like mentions
+  (exactly one active User) — a wrong name stops the creation before anything is made. «Post to the child
   case» (on by default): an editable, almost ready Chatter post (Hi @CM, info, «Please reply in the parent case N…»);
   CM comes from the panel, the parent case number from `SF_CHILD_CASE_INFO` (which also checks each name is exactly
   one active User). After the case is created the post goes to its feed (`/chatter/feed-elements`, InternalUsers =

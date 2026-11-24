@@ -7,6 +7,8 @@
 //   Please reply in the parent case <номер> when I can continue VQC.
 //   Thanks
 // и пост в родительский кейс: «Sent child case to CM @CM» (обе галочки включены по умолчанию).
+// Owner (галочка включена): после создания и постов владелец меняется на этого человека — по умолчанию CM,
+// имя можно заменить; ошибочное имя (не ровно один активный пользователь) не даёт создать кейс.
 // Люди для @упоминаний: CM (из плашки, ERP) и сколько угодно ещё — «+ Add person» (до 10). Все — в приветствии
 // шаблона; в обоих постах любое «@Имя» из списка становится настоящим упоминанием, если в Salesforce ровно один
 // активный пользователь с таким именем. Create → background (SF_CREATE_CHILD_CASE): создаёт Case (владелец — создатель),
@@ -55,6 +57,11 @@
       <input data-f="job" placeholder="J03…" spellcheck="false" style="${INPUT};text-transform:uppercase">
       <label style="${MUTED}">Subject</label>
       <input data-f="subject" maxlength="255" style="${INPUT};grid-column:2/-1;width:100%">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;${MUTED}"
+        title="After the case is created (and the posts are published), its owner is changed to this person">
+        <input type="checkbox" data-f="owner-on" checked style="margin:0;cursor:pointer">Owner</label>
+      <input data-f="owner" maxlength="80" spellcheck="false" placeholder="Name of the new owner" style="${INPUT}">
+      <span data-f="ownerhint" style="grid-column:3/-1;min-width:0;font-size:11px;line-height:13px;white-space:normal"></span>
     </div>
     <div style="margin-top:8px;padding-top:6px;border-top:1px dashed #e5e5e5">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -83,6 +90,9 @@
   const rtSelect = $('rt');
   const jobInput = $('job');
   const subjectInput = $('subject');
+  const ownerOn = $('owner-on');
+  const ownerInput = $('owner');
+  const ownerHint = $('ownerhint');
   const postOn = $('post-on');
   const postBox = $('post-box');
   const peopleBox = $('people');
@@ -203,14 +213,45 @@
     p.hint.textContent = text;
   }
 
-  // Номер родительского кейса и проверка всех имён — одним запросом
+  // ---------------- Новый владелец ----------------
+  // По умолчанию — CM; пока поле не правили, следует за CM. Пусто — кейс остаётся у создателя.
+  // ownerCheck — результат проверки имени: { name, found, many } | null (ещё не проверяли)
+  let autoOwner = '';
+  let ownerCheck = null;
+  const ownerName = () => (ownerOn.checked ? ownerInput.value.trim() : '');
+
+  function setOwnerHint(text, color = '#706e6b') {
+    ownerHint.style.color = color;
+    ownerHint.textContent = text;
+  }
+
+  function showOwnerHint() {
+    const name = ownerInput.value.trim();
+    if (!ownerOn.checked) { setOwnerHint('The case stays with you'); return; }
+    if (!name) { setOwnerHint('Empty: the case stays with you'); return; }
+    if (!ownerCheck || ownerCheck.name !== name) { setOwnerHint(meta ? 'Checking…' : ''); return; }
+    if (ownerCheck.found) setOwnerHint('✓ Will be the owner', '#2e844a');
+    else setOwnerHint(ownerCheck.many ? '⚠ Several users with this name: write the full name or untick'
+      : '⚠ Not found in Salesforce: fix the name or untick', '#8e030f');
+  }
+
+  function refreshOwner() {
+    const cm = cmInput.value.trim();
+    if (ownerInput.value === autoOwner) ownerInput.value = cm;
+    autoOwner = cm;
+    showOwnerHint();
+  }
+
+  // Номер родительского кейса и проверка всех имён (люди для @ и новый владелец) — одним запросом
   function loadInfo() {
     clearTimeout(peopleTimer);
     if (!meta || !openCaseId) return;
-    const names = allNames();
+    const owner = ownerName();
+    const names = [...new Set([...allNames(), owner].filter(Boolean))];
     const token = ++infoToken;
     people.forEach((p) => setHint(p, p.input.value.trim() ? 'Checking…'
       : p === cmPerson ? 'No CM: the post will start with "Hi,"' : ''));
+    showOwnerHint();
     XT.sendToBackground({ type: 'SF_CHILD_CASE_INFO', parentId: openCaseId, names })
       .then((r) => {
         if (token !== infoToken) return;
@@ -232,17 +273,29 @@
           else setHint(p, u.many ? '⚠ Several users with this name: no @mention'
             : '⚠ Not found in Salesforce: no @mention', '#a96404');
         });
+        if (owner && r.users[owner]) ownerCheck = { name: owner, ...r.users[owner] };
+        showOwnerHint();
       })
       .catch((err) => {
-        if (token === infoToken) people.forEach((p) => p.input.value.trim() && setHint(p, `⚠ ${err.message}`, '#8e030f'));
+        if (token !== infoToken) return;
+        people.forEach((p) => p.input.value.trim() && setHint(p, `⚠ ${err.message}`, '#8e030f'));
+        if (owner) setOwnerHint(`⚠ ${err.message}`, '#8e030f');
       });
   }
 
-  // Имена правят: текст постов — сразу, проверка в Salesforce — когда перестали печатать
+  // Имена правят: текст постов и владелец — сразу, проверка в Salesforce — когда перестали печатать
   function onPeopleChange() {
     refreshPost();
+    refreshOwner();
     clearTimeout(peopleTimer);
     people.forEach((p) => setHint(p, ''));
+    peopleTimer = setTimeout(loadInfo, 600);
+  }
+
+  function onOwnerChange() {
+    ownerInput.disabled = saving || !ownerOn.checked;
+    showOwnerHint();
+    clearTimeout(peopleTimer);
     peopleTimer = setTimeout(loadInfo, 600);
   }
 
@@ -250,6 +303,7 @@
     autoCm = cleanCm(cm);
     cmInput.value = autoCm;
     refreshPost();
+    refreshOwner();
     loadInfo();
   }
 
@@ -267,8 +321,9 @@
     const ready = !!meta && !saving && !justCreated;
     createBtn.disabled = !ready;
     createBtn.style.opacity = ready ? '1' : '.6';
-    [jobInput, subjectInput, postOn, postInput, parentOn, parentInput, ...people.map((p) => p.input)]
+    [jobInput, subjectInput, ownerOn, postOn, postInput, parentOn, parentInput, ...people.map((p) => p.input)]
       .forEach((el) => { el.disabled = saving; });
+    ownerInput.disabled = saving || !ownerOn.checked;
     addPersonBtn.style.pointerEvents = saving ? 'none' : '';
     rtSelect.disabled = !meta || saving;
   }
@@ -319,6 +374,13 @@
       parentInput.focus();
       return;
     }
+    // Ошибочное имя владельца — не создаём (background проверит ещё раз, даже если проверка тут не успела)
+    const owner = ownerName();
+    if (owner && ownerCheck && ownerCheck.name === owner && !ownerCheck.found) {
+      setStatus('Fix the owner name or untick Owner', '#8e030f');
+      ownerInput.focus();
+      return;
+    }
     saving = true;
     updateControls();
     setStatus('Creating…');
@@ -327,6 +389,7 @@
         type: 'SF_CREATE_CHILD_CASE',
         input: {
           parentId: openCaseId, recordTypeId: rtSelect.value, jobId, subject,
+          ownerName: owner,
           // Люди для @упоминаний — общие для обоих постов: в тексте упоминанием становится каждое «@Имя» из списка
           mentions: allNames(),
           post: postOn.checked ? { text: postText } : null,
@@ -347,6 +410,11 @@
         return `<br><span style="color:#8e030f">⚠ Not posted to the ${where} case: ${escapeHtml(p.error)}. `
           + 'The text is still in the form: copy it to the feed.</span>';
       };
+      // Кейс и посты есть, а владелец не сменился — кейс остаётся у создателя
+      if (c.ownerChange && !c.ownerChange.ok) {
+        html += `<br><span style="color:#8e030f">⚠ Owner not changed: ${escapeHtml(c.ownerChange.error)}. `
+          + 'The case stays with you: change the owner in Salesforce.</span>';
+      }
       html += postLine(c.post, 'child') + postLine(c.parentPost, 'parent');
       // Пост в открытом кейсе появится в его ленте после обновления страницы
       if (c.parentPost && c.parentPost.ok) html += ` <span style="${MUTED}">(refresh to see it in the feed)</span>`;
@@ -373,6 +441,8 @@
   parentOn.addEventListener('change', syncPostBox);
   // Имена правят руками (строки добавляются — слушаем весь список)
   peopleBox.addEventListener('input', onPeopleChange);
+  ownerInput.addEventListener('input', onOwnerChange);
+  ownerOn.addEventListener('change', onOwnerChange);
   peopleBox.addEventListener('click', (event) => {
     const x = event.target.closest('[data-remove]');
     const p = x && people.find((q) => q.row.contains(x));
@@ -388,7 +458,7 @@
     justCreated = false;
     updateControls();
   };
-  [jobInput, subjectInput, postOn, postInput, parentOn, parentInput, peopleBox].forEach((el) => el.addEventListener(
+  [jobInput, subjectInput, ownerOn, ownerInput, postOn, postInput, parentOn, parentInput, peopleBox].forEach((el) => el.addEventListener(
     el.type === 'checkbox' ? 'change' : 'input', unlock));
   $('cancel').addEventListener('click', () => { close(); notify(); });
   // Клавиши в полях не должны доходить до горячих клавиш Salesforce; Enter в строке — создать, Esc — закрыть.
@@ -455,6 +525,11 @@
       people.slice(1).forEach((p) => { p.row.remove(); });
       people.length = 1;
       addPersonBtn.style.display = '';
+      // Владелец: снова по умолчанию — CM (setCm подставит)
+      ownerOn.checked = true;
+      ownerInput.value = '';
+      autoOwner = '';
+      ownerCheck = null;
       setCm(cm);
       setStatus('');
       fillRecordTypes();
