@@ -68,7 +68,9 @@ in the popup and can be turned on/off individually.
   one active User). After the case is created the post goes to its feed (`/chatter/feed-elements`, InternalUsers =
   Xometry Only); a failed post keeps the case and the text. People to @mention: the CM plus «+ Add person» rows
   (up to 10), all in the greeting; in both posts every «@Name» of the list becomes a real mention (longest names
-  first, case-insensitive). «Post to the
+  first, case-insensitive). A name is looked up like Chatter's «@»: active Users by full name, alias, nickname,
+  username or email (whole or before «@»; the full name wins), then a Chatter group with that name, then Chatter's
+  own `mentions/completions`. Groups can be mentioned but not own a case — the Owner field says so. «Post to the
   parent case» (on by default): one line «Sent child case to CM @CM», posted to the open case the same way. The background
   (`SF_CREATE_CHILD_CASE`) creates the Case via the Salesforce REST API: `ParentId` = the open case, Job = lookup found
   by job number (the Case field labeled «Job», from describe), other fields = the New Case form defaults of the record

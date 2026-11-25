@@ -157,7 +157,12 @@
   const cmPerson = addPerson('', { isCm: true });
   const cmInput = cmPerson.input;
   // Все непустые имена, без повторов (первое — CM, если указан)
-  const allNames = () => [...new Set(people.map((p) => p.input.value.trim()).filter(Boolean))];
+  // Имя из поля: «@» в начале не нужен (его часто пишут по привычке) — так же чистит background
+  const cleanName = (v) => String(v || '').trim().replace(/^@+/, '').trim();
+  const allNames = () => [...new Set(people.map((p) => cleanName(p.input.value)).filter(Boolean))];
+  // «✓ …» с полным именем, если нашли не по нему (alias, nickname, логин), и пометка «group» — видно, кто это
+  const foundAs = (typed, u) => (u.fullName && u.fullName.toLowerCase() !== typed.toLowerCase() ? `: ${u.fullName}` : '')
+    + (u.kind === 'group' ? ' (Chatter group)' : '');
 
   // ---------------- Пост ----------------
   // Шаблон: вторая строка — для информации CM (туда ставится курсор)
@@ -202,7 +207,8 @@
   }, 0));
 
   // CM — из плашки (ERP: caseManagerName); пока поле не правили, следует за плашкой.
-  // Проверка каждого имени: в Salesforce ровно один активный пользователь с таким именем — тогда @Имя будет упоминанием.
+  // Проверка каждого имени: в Salesforce ровно один активный пользователь — по полному имени, alias, nickname или
+  // логину (как «@» в Chatter) — тогда @Имя будет упоминанием.
   let autoCm = '';
   let infoToken = 0;
   let peopleTimer = null;
@@ -218,7 +224,7 @@
   // ownerCheck — результат проверки имени: { name, found, many } | null (ещё не проверяли)
   let autoOwner = '';
   let ownerCheck = null;
-  const ownerName = () => (ownerOn.checked ? ownerInput.value.trim() : '');
+  const ownerName = () => (ownerOn.checked ? cleanName(ownerInput.value) : '');
 
   function setOwnerHint(text, color = '#706e6b') {
     ownerHint.style.color = color;
@@ -226,11 +232,13 @@
   }
 
   function showOwnerHint() {
-    const name = ownerInput.value.trim();
+    const name = cleanName(ownerInput.value);
     if (!ownerOn.checked) { setOwnerHint('The case stays with you'); return; }
     if (!name) { setOwnerHint('Empty: the case stays with you'); return; }
     if (!ownerCheck || ownerCheck.name !== name) { setOwnerHint(meta ? 'Checking…' : ''); return; }
-    if (ownerCheck.found) setOwnerHint('✓ Will be the owner', '#2e844a');
+    if (ownerCheck.found && ownerCheck.kind === 'group') {
+      setOwnerHint('⚠ A Chatter group cannot own a case: write a person or untick', '#8e030f');
+    } else if (ownerCheck.found) setOwnerHint(`✓ Will be the owner${foundAs(name, ownerCheck)}`, '#2e844a');
     else setOwnerHint(ownerCheck.many ? '⚠ Several users with this name: write the full name or untick'
       : '⚠ Not found in Salesforce: fix the name or untick', '#8e030f');
   }
@@ -267,9 +275,10 @@
           }
         }
         people.forEach((p) => {
-          const u = r.users[p.input.value.trim()];
+          const typed = cleanName(p.input.value);
+          const u = r.users[typed];
           if (!u) return;
-          if (u.found) setHint(p, '✓ Will be @mentioned', '#2e844a');
+          if (u.found) setHint(p, `✓ Will be @mentioned${foundAs(typed, u)}`, '#2e844a');
           else setHint(p, u.many ? '⚠ Several users with this name: no @mention'
             : '⚠ Not found in Salesforce: no @mention', '#a96404');
         });
@@ -376,7 +385,7 @@
     }
     // Ошибочное имя владельца — не создаём (background проверит ещё раз, даже если проверка тут не успела)
     const owner = ownerName();
-    if (owner && ownerCheck && ownerCheck.name === owner && !ownerCheck.found) {
+    if (owner && ownerCheck && ownerCheck.name === owner && (!ownerCheck.found || ownerCheck.kind === 'group')) {
       setStatus('Fix the owner name or untick Owner', '#8e030f');
       ownerInput.focus();
       return;

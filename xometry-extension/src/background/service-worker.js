@@ -329,24 +329,72 @@ async function sfCreateDefaults(session, recordTypeId) {
   }
 }
 
-// Активные пользователи Salesforce с таким именем (не больше 2: важно только «ровно один»)
-const sfActiveUsers = (session, name) =>
-  sfQuery(session, `SELECT Id, Name FROM User WHERE Name = '${soqlString(name)}' AND IsActive = true LIMIT 2`);
+// Кого можно @упомянуть по тому, что ввели: пользователи и (groups: true) Chatter-группы. → [{ Id, Name, kind }]
+// kind: 'user' | 'group'. Ровно один — найден, больше — тёзки. Порядок поиска:
+//   1) активные пользователи по точным полям: полное имя, alias, nickname, логин или email (целиком или до «@»);
+//      полное имя важнее: если оно совпало, остальные совпадения не учитываем;
+//   2) Chatter-группа с таким названием;
+//   3) то же, что подсказывает «@» в Chatter (mentions/completions): там поиск шире.
+const SF_ID_KIND = [[/^005/, 'user'], [/^0F9/, 'group']];
+const idKind = (id) => (SF_ID_KIND.find(([re]) => re.test(id || '')) || [])[1] || null;
+
+async function sfFindMentionable(session, name, { groups = false } = {}) {
+  const s = soqlString(name);
+  const like = s.replace(/[%_]/g, '\\$&');   // в LIKE «%» и «_» — спецсимволы
+  const users = await sfQuery(session, 'SELECT Id, Name FROM User '
+    + `WHERE IsActive = true AND (Name = '${s}' OR Alias = '${s}' OR CommunityNickname = '${s}' `
+    + `OR Username = '${s}' OR Username LIKE '${like}@%' OR Email = '${s}' OR Email LIKE '${like}@%') LIMIT 10`);
+  if (users.length) {
+    const byName = users.filter((u) => String(u.Name || '').toLowerCase() === name.toLowerCase());
+    return (byName.length ? byName : users).map((u) => ({ Id: u.Id, Name: u.Name, kind: 'user' }));
+  }
+  if (groups) {
+    const found = await sfQuery(session, `SELECT Id, Name FROM CollaborationGroup WHERE Name = '${s}' LIMIT 2`)
+      .catch(() => []);
+    if (found.length) return found.map((g) => ({ Id: g.Id, Name: g.Name, kind: 'group' }));
+  }
+  const wanted = groups ? ['user', 'group'] : ['user'];
+  return (await sfMentionCompletions(session, name)).filter((c) => wanted.includes(c.kind));
+}
+
+// Только пользователи — для владельца кейса (группа владельцем быть не может)
+const sfActiveUsers = (session, name) => sfFindMentionable(session, name, { groups: false });
+
+// Подсказки «@» из Chatter для этого текста: пользователи и группы, без повторов
+async function sfMentionCompletions(session, name) {
+  if (name.length < 2) return [];
+  try {
+    const d = await sfFetch(session,
+      `/chatter/mentions/completions?q=${encodeURIComponent(name)}&type=All&pageSize=10`);
+    const seen = new Set();
+    return ((d && d.mentionCompletions) || [])
+      .filter((c) => idKind(c.recordId) && !seen.has(c.recordId) && seen.add(c.recordId))
+      .map((c) => ({ Id: c.recordId, Name: c.name || name, kind: idKind(c.recordId) }));
+  } catch (e) {
+    console.warn('[XT] mention completions failed', e);
+    return [];
+  }
+}
 
 const MAX_MENTIONS = 10;   // людей в форме; Chatter допускает до 25 упоминаний в посте
 
-// Список имён из формы: строки, без пустых и повторов, не длиннее 80 символов
+// Список имён из формы: строки без «@» в начале, без пустых и повторов, не длиннее 80 символов
 function cleanUserNames(list) {
-  const names = (Array.isArray(list) ? list : []).map((v) => String(v || '').trim()).filter(Boolean);
+  const names = (Array.isArray(list) ? list : [])
+    .map((v) => String(v || '').trim().replace(/^@+/, '').trim()).filter(Boolean);
   if (names.some((n) => n.length > 80)) throw new Error('Name is too long');
   return [...new Set(names)].slice(0, MAX_MENTIONS);
 }
 
-// Имена → { name: { found, many, id } } (id — только если пользователь ровно один)
+// Имена → { name: { found, many, id, fullName, kind } } (id, fullName, kind — только если нашёлся ровно один:
+// пользователь или Chatter-группа)
 async function sfResolveUsers(session, names) {
   const entries = await Promise.all(names.map(async (name) => {
-    const users = await sfActiveUsers(session, name);
-    return [name, { found: users.length === 1, many: users.length > 1, id: users.length === 1 ? users[0].Id : null }];
+    const found = await sfFindMentionable(session, name, { groups: true });
+    const one = found.length === 1 ? found[0] : null;
+    return [name, {
+      found: !!one, many: found.length > 1, id: one ? one.Id : null, fullName: one ? one.Name : '', kind: one ? one.kind : null,
+    }];
   }));
   return Object.fromEntries(entries);
 }
@@ -359,8 +407,9 @@ async function sfChildCaseInfo(pageUrl, parentId, names) {
   const session = await sfSession(pageUrl);
   const [parent] = await sfQuery(session, `SELECT CaseNumber FROM Case WHERE Id = '${parentId}'`);
   const resolved = await sfResolveUsers(session, list);
-  // В страницу — без Id пользователей: ей нужно только «найден / нет»
-  const users = Object.fromEntries(Object.entries(resolved).map(([n, u]) => [n, { found: u.found, many: u.many }]));
+  // В страницу — без Id пользователей: «найден / нет» и полное имя (видно, кого нашли по alias / логину)
+  const users = Object.fromEntries(Object.entries(resolved)
+    .map(([n, u]) => [n, { found: u.found, many: u.many, fullName: u.fullName, kind: u.kind }]));
   return { parentNumber: (parent && parent.CaseNumber) || '', users };
 }
 
@@ -450,6 +499,13 @@ async function sfCreateChildCase(pageUrl, input) {
   let newOwner = null;
   if (ownerName) {
     const users = await sfActiveUsers(session, ownerName);
+    if (!users.length) {
+      // Не пользователь — может, Chatter-группа: её можно упомянуть, но владельцем кейса она быть не может
+      const any = await sfFindMentionable(session, ownerName, { groups: true });
+      if (any.length && any.every((x) => x.kind === 'group')) {
+        throw new Error(`Owner ${ownerName} is a Chatter group, not a user: a group cannot own a case`);
+      }
+    }
     if (users.length !== 1) {
       throw new Error(`Owner ${ownerName}: ${users.length ? 'several Salesforce users with this name' : 'not found in Salesforce'}`);
     }
